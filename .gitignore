@@ -1,0 +1,20 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local config & secrets
+.env
+
+# Model caches, cloned jevbench, benchmark outputs
+.cache/
+runs/
+
+# OS / editor
+.DS_Store

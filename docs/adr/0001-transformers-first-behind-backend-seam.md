@@ -1,0 +1,3 @@
+# Transformers first, vLLM later, behind one backend seam
+
+The original proposal assumed vLLM, but as of 2026-11-04 no vLLM release can load LFM3 (support sits in the unmerged vllm-project/vllm#64959), and jevbench sends requests one at a time, so vLLM's continuous batching and paged attention would buy little. v1 therefore runs on Hugging Face transformers (CUDA, MPS or CPU) behind a backend interface that exposes only two capabilities, next-token probabilities over a set of candidate tokens and plain text generation (for a Reason), so a vLLM backend can be added once it supports the model without touching the decision logic above it. This seam lives inside the Option-ID Decider only; Decision models such as d1 sit beside it behind the Decider seam (ADR-0003).
