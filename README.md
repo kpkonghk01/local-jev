@@ -161,7 +161,7 @@ docker compose --profile d1 down           # 停掉並移除容器；模型留�
 
 - `--profile lfm3` 啟動 LFM3，聽 port 8001：`uv run local-jev bench --endpoint http://127.0.0.1:8001`。
 - **一次只跑一個 profile。** 兩個 Decider 在 CPU 上用 fp32，加起來約 15 GB，剛好是 OrbStack 給容器的上限（15.7 GiB）。
-- 容器裡沒有 MPS（macOS 上沒有任何 container runtime 能讓 Linux 容器用 Metal），只能用 CPU：短的 State 每個 Decision 約 1 秒，很長的 State 可能要十幾秒。拿來開發與驗證可以，延遲數字請用原生的 `uv run`（MPS）或 GPU host 量。
+- 容器裡沒有 MPS（macOS 上沒有任何 container runtime 能讓 Linux 容器用 Metal），只能用 CPU：短的 State 每個 Decision 約 1 秒，很長的 State（例如 hard 裡的 `long_policy` Tasks）要 15–30 秒。拿來開發與驗證可以，延遲數字請用原生的 `uv run`（MPS）或 GPU host 量。
 - **Model 不在 image 裡。** 第一次啟動時 server 會把 model 下載到 named volume `hf-cache`（容器裡的 `HF_HOME=/data/hf`），固定在 Decider 的 pinned revision，之後的啟動直接讀它；兩個 service 共用這個 volume。整個 Hugging Face cache 一起掛載，因為 hub 把各 model 的檔案連到一個共用的 blob store，只掛一個 model 的目錄會留下斷掉的 symlink。
 - 第一次下載 3–4 GB 需要一段時間，health check 給它 30 分鐘的 `start_period`；`docker compose logs -f d1` 可以看進度。`docker compose down -v` 會連 volume 一起刪掉，下次啟動就要重新下載。
 
