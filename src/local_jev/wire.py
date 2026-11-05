@@ -15,7 +15,7 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import AfterValidator, BaseModel, JsonValue, PlainValidator
+from pydantic import AfterValidator, BaseModel, JsonValue, PlainValidator, StrictBool
 
 from local_jev.calibration import Calibration, load_calibration
 from local_jev.decider import (
@@ -136,6 +136,8 @@ def _has_questions(questions: dict[str, Question]) -> dict[str, Question]:
 class SystemOneRequest(BaseModel):
     state: Annotated[JsonValue, AfterValidator(_has_state)]
     model: str | None = None
+    explain: StrictBool = False
+    """Our extension to the wire format: ask for a Reason in every answer."""
     questions: Annotated[dict[str, WireQuestion], AfterValidator(_has_questions)]
 
 
@@ -222,7 +224,7 @@ def create_app(
         with one_request_at_a_time:
             for name, question in request.questions.items():
                 asked = time.perf_counter()
-                decision = decider.decide(request.state, question)
+                decision = decider.decide(request.state, question, explain=request.explain)
                 deciding += time.perf_counter() - asked
                 usage += decision.usage
                 try:
@@ -235,6 +237,8 @@ def create_app(
                 if calibration is not None:
                     distribution = calibration.apply(question.type, distribution)
                 answers[name] = _answer(question, distribution)
+                if decision.reason is not None:
+                    answers[name]["reason"] = decision.reason
         # Counted from the parsed request, so it includes any wait for an earlier request.
         timing = {"total_ms": _ms(time.perf_counter() - started), "decider_ms": _ms(deciding)}
         return {

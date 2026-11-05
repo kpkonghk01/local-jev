@@ -13,10 +13,12 @@ from pathlib import Path
 
 import pytest
 from harness.fake_d1 import FakeD1Model, d1_choice, d1_noul, d1_score
+from harness.fake_lm import FakeLMBackend
 from harness.server import listening
 
 from local_jev.cli import main
 from local_jev.d1 import D1Decider
+from local_jev.option_id import OptionIDDecider
 
 PROJECT_CACHE = Path(__file__).parents[1] / ".cache"
 
@@ -332,3 +334,18 @@ def test_a_run_jevbench_stops_early_fails_and_says_how_far_it_got(tmp_path):
     (run,) = tmp_path.iterdir()
     assert str(run) in str(stopped.value)
     assert len(_jsonl(run / "results.jsonl")) == 3
+
+
+def test_a_run_never_asks_for_a_reason(tmp_path):
+    """So a benchmark's latency never includes writing one, even on a Decider that can."""
+    backend = FakeLMBackend({"A": 0.5, "Yes": 0.3, "0": 0.2}, writes="Because it fits best.")
+    with listening(lambda: OptionIDDecider(backend, device="cpu")) as endpoint:
+        run = _bench(endpoint, tmp_path, "--limit", "10")
+    # jevbench keeps each Task's request and response as raw evidence.
+    exchanges = [json.loads(raw.read_text()) for raw in (run / "raw").iterdir()]
+    results = _jsonl(run / "results.jsonl")
+
+    assert len(exchanges) == 10
+    assert not any(e["request"].get("explain") for e in exchanges)
+    assert not any("reason" in e["response"]["answers"]["decision"] for e in exchanges)
+    assert {r["usage"]["output_tokens"] for r in results} == {0}

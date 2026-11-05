@@ -6,6 +6,10 @@ its mass on "Yes"); the level digits 0 to 9 for `score`. One forward pass reads 
 likelihood of every Option ID right where the assistant's answer starts (after LFM3's empty think
 block, with no leading space), and the Distribution is that likelihood normalised over the Labels.
 
+With `explain`, a Reason is generated afterwards, from the same Situation and Question with the
+most likely Label given as the answer, and asked for in the State's language (Traditional Chinese
+or English), so it explains the Decision and cannot change it.
+
 Known risk, not mitigated here: on a 3-option probe LFM3-1.7B picked whichever of two plausible
 options was listed later, at 0.85-1.00, in every one of the 6 orders (a recency bias). Averaging
 over option orders would fix the order, not the model, and would cost more than one pass.
@@ -16,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import string
 import time
 from collections.abc import Mapping, Sequence
@@ -48,6 +53,11 @@ _LETTERS = string.ascii_uppercase
 _YES_NO = {"yes": ("yes", "Yes"), "no": ("no", "No")}
 """A Chat model may say either; most of its mass is on "Yes", so each Label pools both."""
 
+REASON_MAX_TOKENS = 64
+"""A Reason is short: generation stops at the model's end of turn or at this many tokens.
+Asked for one sentence, LFM3-1.7B wrote 27-35 tokens in English and in Chinese (about one token
+per Han character), in about 1.5 s on MPS."""
+
 OPTION_IDS = (*_LETTERS, *(form for forms in _YES_NO.values() for form in forms), *string.digits)
 """Every Option ID form this Decider scores; each must be one token where it is scored."""
 
@@ -65,7 +75,7 @@ class OptionIDDecider:
         self._backend = backend
         self.runtime = Runtime(decider="lfm3", model=model_id, revision=revision, device=device)
 
-    def decide(self, state: State, question: Question) -> Decision:
+    def decide(self, state: State, question: Question, explain: bool = False) -> Decision:
         forms = _option_id_forms(question)
         candidates = [form for label_forms in forms.values() for form in label_forms]
         # The one forward pass; everything after it is arithmetic over the Label set.
@@ -74,9 +84,18 @@ class OptionIDDecider:
             label: _logsumexp([scored.logprobs[form] for form in label_forms])
             for label, label_forms in forms.items()
         }
-        return Decision(
-            distribution=_softmax(pooled), usage=Usage(input_tokens=scored.prompt_tokens)
+        distribution = _softmax(pooled)
+        usage = Usage(input_tokens=scored.prompt_tokens)
+        if not explain:
+            return Decision(distribution, usage)
+        # The Distribution is fixed by now: the Reason explains the Decision, it cannot change it.
+        most_likely = max(distribution, key=distribution.__getitem__)
+        written = self._backend.generate(
+            _reason_messages(state, question, forms, most_likely), REASON_MAX_TOKENS
         )
+        # The Reason's prompt is read in a pass of its own, so its tokens count as read too.
+        usage += Usage(written.prompt_tokens, written.output_tokens)
+        return Decision(distribution, usage, reason=written.text)
 
 
 def load_lfm3(
@@ -122,6 +141,27 @@ def _option_id_forms(question: Question) -> dict[Label, tuple[str, ...]]:
 def _messages(state: State, question: Question, forms: Mapping[Label, Sequence[str]]) -> Messages:
     """One user turn; the backend's chat template turns it into the prompt, ending where the
     assistant's answer starts, so the Option ID is the very next token."""
+    match question:
+        case ChoiceQuestion():
+            reply = "Reply with the letter of the one best option, and nothing else."
+        case NoulQuestion():
+            reply = "Reply with yes or no, and nothing else."
+        case ScoreQuestion():
+            reply = "Reply with the number of the one best level, and nothing else."
+    return [{"role": "user", "content": "\n".join([*_asking(state, question, forms), "", reply])}]
+
+
+def _reason_messages(
+    state: State, question: Question, forms: Mapping[Label, Sequence[str]], answer: Label
+) -> Messages:
+    """One user turn: the same Situation and Question, the answer already chosen, and a request
+    to say why, asked in the State's language."""
+    lines = [*_asking(state, question, forms), "", f"The answer is: {answer}", ""]
+    return [{"role": "user", "content": "\n".join([*lines, _ASK_WHY[_language(state)]])}]
+
+
+def _asking(state: State, question: Question, forms: Mapping[Label, Sequence[str]]) -> list[str]:
+    """The Situation, the Question and what each Label means, as lines of the prompt."""
     lines = ["Situation:", _as_text(state), "", f"Question: {question.instructions}"]
     match question:
         case ChoiceQuestion(criteria=criteria):
@@ -129,16 +169,39 @@ def _messages(state: State, question: Question, forms: Mapping[Label, Sequence[s
             for label, description in criteria.items():
                 shown = f"{label}: {description}" if description else label
                 lines.append(f"{forms[label][0]}. {shown}")
-            lines += ["", "Reply with the letter of the one best option, and nothing else."]
         case NoulQuestion(criteria=criteria):
             if criteria:
                 lines += [f"{label}: {criteria[label]}" for label in ("yes", "no")]
-            lines += ["", "Reply with yes or no, and nothing else."]
         case ScoreQuestion(criteria=levels):
             lines += ["", "Levels, lowest first:"]
             lines += [f"{level}: {text}" for level, text in enumerate(levels)]
-            lines += ["", "Reply with the number of the one best level, and nothing else."]
-    return [{"role": "user", "content": "\n".join(lines)}]
+    return lines
+
+
+_ASK_WHY = {
+    "en": "In one short sentence, explain why this is the answer.",
+    "zh-TW": "請用繁體中文（台灣用語），以一句話簡短說明為什麼是這個答案。",
+}
+"""Asked in the language the Reason must be in: on a Chinese State with English instructions,
+LFM3-1.7B wrote English when only asked to explain."""
+
+
+def _language(state: State) -> str:
+    """Traditional Chinese when Han characters carry the State, English otherwise.
+
+    A Chinese word takes about two characters, so a State is Chinese when it has at least twice as
+    many Han characters as Latin words: a Chinese message that keeps a product or carrier name is
+    still Chinese, an English one quoting a Chinese name is still English. Traditional Chinese is
+    the only Chinese local-jev serves, so any Han text gets a Reason in it.
+    """
+    text = _as_text(state)
+    han = len(_HAN.findall(text))
+    return "zh-TW" if han and han >= 2 * len(_LATIN_WORD.findall(text)) else "en"
+
+
+_HAN = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+"""CJK Unified Ideographs, Extension A and Compatibility Ideographs."""
+_LATIN_WORD = re.compile("[A-Za-z]+")
 
 
 def _as_text(state: State) -> str:
