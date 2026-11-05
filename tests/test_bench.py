@@ -81,6 +81,13 @@ def test_a_run_keeps_jevbench_results_raw_evidence_ledger_and_summary(smoke_run)
     )
 
 
+def test_a_run_keeps_jevbenchs_public_export_of_its_summary(smoke_run):
+    export = json.loads((smoke_run / "public-export.json").read_text())
+
+    assert (export["n_attempted"], export["schema_validity"]) == (10, 1.0)
+    assert export["dataset_hash"]
+
+
 def test_a_run_against_a_local_server_reserves_and_charges_nothing(smoke_run):
     """Unpriced, jevbench would hold $0.02 per Task against its $15 cap, and cost would be null."""
     summary = json.loads((smoke_run / "summary.json").read_text())

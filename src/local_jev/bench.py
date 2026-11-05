@@ -185,6 +185,7 @@ def bench(
         "--tasks", tasks_file,
         "--results", run / "results.jsonl",
         "--ledger", run / "ledger.jsonl",
+        "--public-export", run / "public-export.json",
     )  # fmt: skip
     if summarized.returncode != 0:
         raise BenchFailed(f"jevbench summarize exited with {summarized.returncode}; see {run}")

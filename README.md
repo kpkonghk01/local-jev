@@ -315,6 +315,7 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 | `raw/` | jevbench 的 raw evidence：每個 Task 一個檔，存完整的 request 與 response |
 | `ledger.jsonl`、`manifest.json` | jevbench 的成本 ledger 與 run 設定（含 `dataset_hash`） |
 | `summary.json` | jevbench `summarize` 的輸出：`accuracy`、`brier_mean`、`ece`、`schema_validity`（Valid answers）、`latency.p50_s`/`p95_s`（client 端）等 |
+| `public-export.json` | jevbench `summarize --public-export` 的輸出：同樣的指標只從可信的欄位重算，再加上 `dataset_hash`，可以拿去分享 |
 | `decisions.jsonl` | 每個 Task 一行：server 給的 Distribution 和預期的 Label 放在一起，給 calibration 用（格式見下） |
 | `run.json` | 這次 run 的紀錄：jevbench 的 URL（有設 `LOCAL_JEV_JEVBENCH_URL` 時是那個 mirror）與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision、硬體（`cuda`、`mps` 或 `cpu`）與 `calibration`（raw 時是 `null`） |
 | `calibration-report.json` | 只有跑過 `local-jev calibrate` 才有：cross-validated 的 calibration 報告（格式見「Calibration」） |
