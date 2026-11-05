@@ -201,6 +201,19 @@ def test_a_real_bench_run_and_its_calibration_are_reported_as_jevbench_and_the_f
     assert (calibrated["Brier"], calibrated["ECE"]) == (f"{cv['brier']:.3f}", f"{cv['ece']:.3f}")
 
 
+def test_a_real_bench_run_of_the_traditional_chinese_set_is_reported_as_such(tmp_path):
+    with listening(lambda: D1Decider(FakeD1Model(_plausible), device="cpu")) as endpoint:
+        main(
+            ["bench", "--endpoint", endpoint, "--runs-dir", str(tmp_path / "runs")]
+            + ["--cache-dir", str(PROJECT_CACHE), "--task-set", "zh-tw", "--limit", "6"]
+        )
+    (run,) = (tmp_path / "runs").iterdir()
+
+    (row,) = _results(_report(tmp_path, run))
+
+    assert (row["Language"], row["Task set"], row["Tasks"]) == ("Traditional Chinese", "zh-tw", "6")
+
+
 def _lines(run: Path) -> list[str]:
     return (run / "decisions.jsonl").read_text(encoding="utf-8").splitlines()
 

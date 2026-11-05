@@ -424,7 +424,7 @@ uv run local-jev report runs/<d1 的 raw run> runs/<lfm3 的 raw run> runs/<繁�
 - **Client 延遲**是 jevbench 量的 wall-clock（`summary.json` 的 `latency`，包含失敗的請求）；**server 延遲**是每個答案 `runtime.total_ms` 的 p50/p95，percentile 的算法和 jevbench 一樣（線性內插）。
 - **Hardware** 是答案 `runtime.device` 回報的 device。每一行只來自一個 run、一種硬體，不同硬體的 run 絕不合併成同一個延遲數字。萬一一個 run 的答案來自不只一種 device（例如中途換了 server），Hardware 寫成 `cpu + mps`，兩個延遲欄都寫 `mixed`。
 
-想要繁體中文的 calibrated 行：對繁體中文 Task set 的 raw run 跑 `calibrate`。`calibrate` 一定會寫 calibration 檔案，所以要把 `--calibrations-dir` 指到別處，免得蓋掉 committed 的、用英文 public Tasks 擬合的 calibration：
+想要繁體中文的 calibrated 行：對 `--task-set zh-tw` 的 raw run 跑 `calibrate`。`calibrate` 一定會寫 calibration 檔案，所以要把 `--calibrations-dir` 指到別處，免得蓋掉 committed 的、用英文 public Tasks 擬合的 calibration：
 
 ```sh
 uv run local-jev calibrate runs/<繁體中文的 raw run> --calibrations-dir /tmp/zh-tw-calibrations
