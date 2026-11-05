@@ -1,0 +1,56 @@
+# One Decider per service, each behind its own profile, so only the one you pick starts:
+#   docker compose --profile d1 up --wait      (or --profile lfm3)
+# Both together need about 15 GB in fp32 on CPU, at OrbStack's container memory limit.
+# On a Linux NVIDIA GPU host, add the override: -f compose.yaml -f compose.gpu.yaml
+name: local-jev
+
+x-decider: &decider
+  build:
+    context: .
+    target: runtime
+  image: local-jev:runtime
+  volumes:
+    # The whole Hugging Face cache (HF_HOME): the hub links snapshots into a shared blob store,
+    # so one model directory alone would not work. Both Deciders share it.
+    - hf-cache:/data/hf
+  healthcheck:
+    # /health answers 200 only once the Decider has loaded and warmed up, and 503 until then.
+    test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    # The first start downloads the model (3 to 4 GB) into hf-cache.
+    start_period: 30m
+    start_interval: 5s
+
+services:
+  d1:
+    <<: *decider
+    profiles: [d1]
+    command: [--decider, d1]
+    ports:
+      - ${LOCAL_JEV_BIND:-127.0.0.1}:${LOCAL_JEV_D1_PORT:-8000}:8000
+    environment:
+      # Empty means the Decider's own model at its pinned revision.
+      LOCAL_JEV_MODEL: ${LOCAL_JEV_D1_MODEL:-}
+      LOCAL_JEV_REVISION: ${LOCAL_JEV_D1_REVISION:-}
+      LOCAL_JEV_TOKEN: ${LOCAL_JEV_TOKEN:-}
+
+  lfm3:
+    <<: *decider
+    profiles: [lfm3]
+    command: [--decider, lfm3]
+    ports:
+      - ${LOCAL_JEV_BIND:-127.0.0.1}:${LOCAL_JEV_LFM3_PORT:-8001}:8000
+    environment:
+      LOCAL_JEV_MODEL: ${LOCAL_JEV_LFM3_MODEL:-}
+      LOCAL_JEV_REVISION: ${LOCAL_JEV_LFM3_REVISION:-}
+      LOCAL_JEV_CHAT_TEMPLATE_OPTIONS: ${LOCAL_JEV_LFM3_CHAT_TEMPLATE_OPTIONS:-}
+      LOCAL_JEV_TOKEN: ${LOCAL_JEV_TOKEN:-}
+
+volumes:
+  hf-cache:

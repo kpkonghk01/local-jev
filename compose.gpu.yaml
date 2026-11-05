@@ -1,0 +1,18 @@
+# UNVERIFIED: no GPU host has run this yet.
+# Gives each Decider the host's NVIDIA GPUs; `local-jev serve` then picks CUDA (bf16) by itself:
+#   docker compose -f compose.yaml -f compose.gpu.yaml --profile d1 up --wait
+# The host needs the NVIDIA driver (570.26 or newer, for the image's CUDA 12.8 torch) and the
+# NVIDIA Container Toolkit. The image itself is the same runtime target, built for linux/amd64.
+
+x-nvidia-gpus: &nvidia-gpus
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  d1: *nvidia-gpus
+  lfm3: *nvidia-gpus

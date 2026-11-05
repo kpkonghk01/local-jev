@@ -1,0 +1,32 @@
+Traditional-Chinese copy of the JevBench public Tasks (easy.jsonl, original.jsonl, hard.jsonl)
+
+These files are derived from the public Tasks of JevBench
+(https://github.com/fstandhartinger/jevbench) at commit
+609a664e81f46e03731600bd7bd9f1b7a61257c5: datasets/public/easy.jsonl, original.jsonl and
+hard.jsonl. Each Task's State has been translated into Traditional Chinese (Taiwan usage); every
+other field of every Task is unchanged.
+
+JevBench is distributed under the MIT License, reproduced below. Keep this notice with the files
+when you share them.
+
+MIT License
+
+Copyright (c) 2026 Florian Standhartinger and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
