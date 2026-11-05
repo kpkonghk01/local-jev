@@ -247,14 +247,14 @@ def _verdict(rows: Sequence[Row], deciders: Sequence[str]) -> list[Checked]:
         _valid_answers(public, deciders),
         _accuracy_and_brier(public, deciders),
         _recorded_on_mps(public, deciders),
-        _on_gpu(public, deciders),
+        _on_gpu(public),
     ]
 
 
 GPU_P50_BAR_MS = 150.0
 
 
-def _on_gpu(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
+def _on_gpu(public: Sequence[Row]) -> Checked:
     """The default Decider's server-side p50 on CUDA, against the bar set for an L4-class GPU.
 
     Each CUDA run is checked on its own, and all must reach the bar. A run says only that it ran
