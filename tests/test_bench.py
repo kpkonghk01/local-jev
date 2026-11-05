@@ -81,6 +81,13 @@ def test_a_run_keeps_jevbench_results_raw_evidence_ledger_and_summary(smoke_run)
     )
 
 
+def test_a_run_keeps_jevbenchs_public_export_of_its_summary(smoke_run):
+    export = json.loads((smoke_run / "public-export.json").read_text())
+
+    assert (export["n_attempted"], export["schema_validity"]) == (10, 1.0)
+    assert export["dataset_hash"]
+
+
 def test_a_run_against_a_local_server_reserves_and_charges_nothing(smoke_run):
     """Unpriced, jevbench would hold $0.02 per Task against its $15 cap, and cost would be null."""
     summary = json.loads((smoke_run / "summary.json").read_text())
@@ -272,6 +279,15 @@ def test_jevbench_is_fetched_at_the_pinned_commit_and_then_reused(
 
     assert fetched == JEVBENCH_COMMIT
     assert len(_jsonl(run / "results.jsonl")) == 2
+
+
+def test_a_run_records_the_mirror_jevbench_is_fetched_from(tmp_path, monkeypatch, jevbench_mirror):
+    monkeypatch.setenv("LOCAL_JEV_JEVBENCH_URL", jevbench_mirror)
+    with listening(_fake_d1()) as endpoint:
+        run = _bench_with_cache(endpoint, tmp_path, tmp_path / "cache")
+    record = json.loads((run / "run.json").read_text())
+
+    assert record["jevbench"] == {"url": jevbench_mirror, "commit": JEVBENCH_COMMIT}
 
 
 def test_a_cached_checkout_at_another_commit_is_fetched_again(

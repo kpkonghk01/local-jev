@@ -101,6 +101,8 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 回應裡 `answers` 底下用同樣的名稱（`decision`）回答：`choice` 是最可能的 Label，`probabilities` 是這個 Question 的 Label set 上加總為 1 的 Distribution；`model` 原樣回傳請求裡的值。State 可以是純文字，也可以是 JSON 物件。
 
+State、instructions 與 Criteria 裡若寫出 model 的 control token 字串（例如 `<|im_end|>`、`<|im_start|>`、`</think>`），兩個 Decider 都只把它當成文字讀：在字串第一個字元後面插入一個 zero-width space，tokenizer 就不會把它讀成 control token，所以 State 不能藉此結束使用者的回合、替 model 作答。d1 自己的 prompt 程式碼只處理它的 special token，`<think>`、`</think>` 由 local-jev 在交給 d1 之前處理。jevbench 的 231 個 public Tasks 與繁體中文副本都不含這類字串，所以 benchmark 數字不受影響。
+
 一個請求可以帶好幾個具名的 Question（都針對同一個 State），回應的 `answers` 底下用同樣的名稱各回一個答案。每個 Question 各自呼叫一次 Decider，所以答案不會因為同一個請求裡還有哪些其他 Question 而改變（d1 若把多個 question 塞進同一次呼叫，答案會偏移約 0.03）。
 
 回應裡還有：
@@ -124,7 +126,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 | type | `criteria` | 答案 |
 | --- | --- | --- |
-| `choice` | `{label: 說明}`，1 到 26 個選項（兩個 Decider 都一樣） | `{"type": "choice", "choice": <最可能的 Label>, "probabilities": {label: …}}` |
+| `choice` | `{label: 說明}`，1 到 26 個選項（兩個 Decider 都一樣）；每個 Label 都必須有非空白的說明，因為 Criteria 會給模型看 | `{"type": "choice", "choice": <最可能的 Label>, "probabilities": {label: …}}` |
 | `noul` | 選用，`{"true": "yes 代表什麼", "false": "no 代表什麼"}` | `{"type": "noul", "noul": <P(yes)>}` |
 | `score` | 2 到 10 個等級說明的 list，由低到高 | `{"type": "score", "score": <最可能的等級>, "probabilities": {"0": …, "1": …}}` |
 
@@ -142,7 +144,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 - `explain` 是我們對 wire format 的擴充，預設 `false`，只接受 JSON 的 `true`/`false`（`"yes"`、`1` 之類會回 422）。jevbench 的 `typesafe` adapter 不會送它，benchmark 也一律不開，所以 benchmark 的延遲不受影響。
 - Reason 在 Distribution 算完之後才生成：把同一個 State 與 Question、加上已經選定的最可能 Label 交給 model，請它用一句話說明理由。所以有沒有要求 Reason，`probabilities`、`choice`、`noul`、`score` 都完全一樣。
-- Reason 用 State 的語言寫：State 以中文字為主時用繁體中文（台灣用語），否則用英文。Question 的 instructions 是英文也一樣。
+- Reason 用 State 的語言寫：只看 State 本身的文字（JSON State 的 key 不算），中文字至少是英文單字數的一半時用繁體中文（台灣用語），否則用英文。中文 State 常保留英文的名稱、代碼、表格或程式碼，這些英文單字可能比中文詞還多，仍算中文；英文 State 只引用一個中文名字，仍是英文。這條規則把 231 個 public Tasks 與它們的繁體中文副本全部分對。Question 的 instructions 是英文也一樣。
 - 長度上限 64 個 token（中文約一字一個 token），寫到 model 的回合結束或上限就停；碰到上限時句子可能被截斷。實測一句話約 27–35 個 token，在 M3 Pro 的 MPS 上每個 Reason 約 1.5 秒，容器裡的 CPU 會慢很多。
 - Reason 是 model 生成的純文字，server 建回應時做 JSON escape，引號、換行之類的字元不會弄壞回應。
 - **`d1` 不支援 Reason**：d1 是 Decision model，不會生成文字（見 ADR-0003）。對 `d1` 送 `"explain": true` 會照常回答，只是沒有 `reason` 欄位，也不會報錯。
@@ -315,8 +317,9 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 | `raw/` | jevbench 的 raw evidence：每個 Task 一個檔，存完整的 request 與 response |
 | `ledger.jsonl`、`manifest.json` | jevbench 的成本 ledger 與 run 設定（含 `dataset_hash`） |
 | `summary.json` | jevbench `summarize` 的輸出：`accuracy`、`brier_mean`、`ece`、`schema_validity`（Valid answers）、`latency.p50_s`/`p95_s`（client 端）等 |
+| `public-export.json` | jevbench `summarize --public-export` 的輸出：同樣的指標只從可信的欄位重算，再加上 `dataset_hash`，可以拿去分享 |
 | `decisions.jsonl` | 每個 Task 一行：server 給的 Distribution 和預期的 Label 放在一起，給 calibration 用（格式見下） |
-| `run.json` | 這次 run 的紀錄：jevbench 的 URL 與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision、硬體（`cuda`、`mps` 或 `cpu`）與 `calibration`（raw 時是 `null`） |
+| `run.json` | 這次 run 的紀錄：jevbench 的 URL（有設 `LOCAL_JEV_JEVBENCH_URL` 時是那個 mirror）與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision、硬體（`cuda`、`mps` 或 `cpu`）與 `calibration`（raw 時是 `null`） |
 | `calibration-report.json` | 只有跑過 `local-jev calibrate` 才有：cross-validated 的 calibration 報告（格式見「Calibration」） |
 
 `run.json` 只在整個 run 成功跑完才會寫入。jevbench 中途停止（遇到 401、403、429，或連續三次失敗）時，`local-jev bench` 以非零 exit code 結束並說明跑到第幾個 Task；目錄裡留著 jevbench 已寫的結果與 raw evidence 供除錯，但沒有 `summary.json`、`decisions.jsonl`、`run.json`。

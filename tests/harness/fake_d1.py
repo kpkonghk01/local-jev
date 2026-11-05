@@ -17,18 +17,28 @@ like the real model, questions packed into one call are not answered independent
 in one sequence after the State, so each also hears the earlier ones (observed: 0.7729 alone,
 0.8059 packed behind other questions).
 
+The real model's prompt code defuses its tokenizer's special tokens (`<|im_end|>`, `<|im_start|>`)
+in a State or question, but not `<think>` or `</think>`, which its tokenizer reads as control tokens
+without marking them special (observed: a State spelling `<think></think>` put two of each in d1's
+prompt). The fake refuses any text holding one of `CONTROL_TOKENS`, which no caller's text may
+become.
+
 The fake keeps every question it was asked, in d1's own question format, in `asked`.
 """
 
 from __future__ import annotations
 
 import copy
+import json
 import threading
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
 Answer = Callable[[Any, dict], dict]
+
+CONTROL_TOKENS = ("<think>", "</think>")
+"""The pinned d1 tokenizer's control tokens that its own prompt code leaves as they are."""
 
 
 class FakeD1Model:
@@ -57,6 +67,7 @@ class FakeD1Model:
             self._running.release()
 
     def _system_one(self, state, questions) -> dict:
+        _check_text("the State", state)
         time.sleep(self._seconds_per_call)
         answers = {}
         for earlier, (name, question) in enumerate(questions.items()):
@@ -147,3 +158,11 @@ def _check_question(name: str, q: dict) -> None:
         raise ValueError(
             f"question {name!r}: the fake d1 model does not answer multi-select choice"
         )
+    _check_text(f"question {name!r}", q)
+
+
+def _check_text(where: str, value: Any) -> None:
+    """Refuses `value` (a JSON value) if any string in it would be read as a control token."""
+    text = json.dumps(value, ensure_ascii=False)
+    if read := [token for token in CONTROL_TOKENS if token in text]:
+        raise ValueError(f"{where} holds {read}, which d1 would read as control tokens")

@@ -130,41 +130,47 @@ def test_a_choice_of_more_than_26_options_is_refused_before_it_reaches_the_model
     assert response.status_code == 422
     assert response.json()["detail"].startswith("questions.q: ")
     assert "at most 26 options" in response.json()["detail"]
-    assert backend.asked == []
+    assert backend.forward_passes == 0
 
 
-def _prompt_text(backend: FakeLMBackend) -> str:
-    [messages] = backend.asked
-    return "\n".join(message["content"] for message in messages)
+def _knows_once_it_has_read(*parts: str, says: str) -> FakeLMBackend:
+    """A model that says `says` with confidence once it has read every one of `parts`, and has no
+    idea (spreads its mass evenly) while any is missing."""
+    return FakeLMBackend(lambda shown: {says: 0.9} if all(p in shown for p in parts) else {})
+
+
+SAID_FOR_EXPECTED = {"easy-intent-00": "E", "easy-fact-00": "Yes", "original-ordinal-01-0": "0"}
+"""The Option ID of each Task's expected Label: track_order is the 5th option in Criteria order."""
 
 
 @pytest.mark.parametrize("task", [EASY_INTENT, EASY_FACT, ORIGINAL_ORDINAL], ids=lambda t: t["id"])
-def test_the_model_is_shown_the_state_the_instructions_and_every_criterion(task):
-    backend = FakeLMBackend({"A": 0.5, "Yes": 0.2, "0": 0.3})
-    with serving_option_id(backend) as client:
-        client.post("/v1/systemone", json=jevbench.request_for(task))
-
-    shown = _prompt_text(backend)
+def test_a_model_that_must_read_the_state_the_instructions_and_every_criterion_can_answer(task):
     question = task["question"]
     criteria = question["criteria"]
     descriptions = criteria.values() if isinstance(criteria, dict) else criteria
-    assert task["state"] in shown
-    assert question["instructions"] in shown
-    assert all(description in shown for description in descriptions)
-
-
-def test_a_json_state_is_shown_to_the_model_as_json():
-    backend = FakeLMBackend({"A": 0.6})
-    state = {"order": 1182, "status": "shipped", "carrier": None}
+    backend = _knows_once_it_has_read(
+        task["state"], question["instructions"], *descriptions, says=SAID_FOR_EXPECTED[task["id"]]
+    )
     with serving_option_id(backend) as client:
-        _ask(client, TEAM, state=state)
+        answer = _ask(client, jevbench.request_for(task)["questions"]["decision"], task["state"])
 
-    assert '"status": "shipped"' in _prompt_text(backend)
-    assert '"carrier": null' in _prompt_text(backend)
+    distribution = answer.get("probabilities") or {"yes": answer["noul"], "no": 1 - answer["noul"]}
+    expected = str(task["expected"])  # a score Task's is the level as a number
+    assert max(distribution, key=distribution.__getitem__) == expected
+    assert distribution[expected] > 0.8
+
+
+def test_a_json_state_reaches_the_model_as_json_with_its_chinese_intact():
+    state = {"訂單": 1182, "狀態": "已出貨", "物流": None}
+    backend = _knows_once_it_has_read('"狀態": "已出貨"', '"物流": null', says="Yes")
+    with serving_option_id(backend) as client:
+        answer = _ask(client, {"type": "noul", "instructions": "Has it shipped?"}, state)
+
+    assert answer["noul"] > 0.8
 
 
 @pytest.mark.parametrize("task", [EASY_INTENT, EASY_FACT, ORIGINAL_ORDINAL], ids=lambda t: t["id"])
-def test_each_decision_costs_one_forward_pass(task):
+def test_each_decision_costs_the_model_one_forward_pass(task):
     backend = FakeLMBackend({"A": 0.5, "Yes": 0.2, "0": 0.3})
     request = jevbench.request_for(task)
     question = request["questions"]["decision"]
@@ -173,7 +179,7 @@ def test_each_decision_costs_one_forward_pass(task):
         response = client.post("/v1/systemone", json=request)
 
     assert response.status_code == 200
-    assert len(backend.asked) == 2
+    assert backend.forward_passes == 2
 
 
 def test_usage_reports_the_prompt_tokens_read_for_every_question_and_no_output_tokens():

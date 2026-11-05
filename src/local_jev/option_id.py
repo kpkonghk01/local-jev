@@ -6,7 +6,7 @@ its mass on "Yes"); the level digits 0 to 9 for `score`. One forward pass reads 
 likelihood of every Option ID right where the assistant's answer starts (after LFM3's empty think
 block, with no leading space), and the Distribution is that likelihood normalised over the Labels.
 
-With `explain`, a Reason is generated afterwards, from the same Situation and Question with the
+With `explain`, a Reason is generated afterwards, from the same State and Question with the
 most likely Label given as the answer, and asked for in the State's language (Traditional Chinese
 or English), so it explains the Decision and cannot change it.
 
@@ -41,6 +41,7 @@ from local_jev.decider import (
     Usage,
 )
 from local_jev.device import pick_device
+from local_jev.distribution import argmax, softmax
 from local_jev.lm_backend import LMBackend, Messages
 
 LFM3_MODEL_ID = "LiquidAI/LFM3-1.7B"
@@ -86,12 +87,12 @@ class OptionIDDecider:
             label: _logsumexp([scored.logprobs[form] for form in label_forms])
             for label, label_forms in forms.items()
         }
-        distribution = _softmax(pooled)
+        distribution = softmax(pooled)
         usage = Usage(input_tokens=scored.prompt_tokens)
         if not explain:
             return Decision(distribution, usage)
         # The Distribution is fixed by now: the Reason explains the Decision, it cannot change it.
-        most_likely = max(distribution, key=distribution.__getitem__)
+        most_likely = argmax(distribution)
         written = self._backend.generate(
             _reason_messages(state, question, forms, most_likely), REASON_MAX_TOKENS
         )
@@ -156,21 +157,23 @@ def _messages(state: State, question: Question, forms: Mapping[Label, Sequence[s
 def _reason_messages(
     state: State, question: Question, forms: Mapping[Label, Sequence[str]], answer: Label
 ) -> Messages:
-    """One user turn: the same Situation and Question, the answer already chosen, and a request
+    """One user turn: the same State and Question, the answer already chosen, and a request
     to say why, asked in the State's language."""
     lines = [*_asking(state, question, forms), "", f"The answer is: {answer}", ""]
     return [{"role": "user", "content": "\n".join([*lines, _ASK_WHY[_language(state)]])}]
 
 
 def _asking(state: State, question: Question, forms: Mapping[Label, Sequence[str]]) -> list[str]:
-    """The Situation, the Question and what each Label means, as lines of the prompt."""
+    """The State, the Question and what each Label means, as lines of the prompt.
+
+    The model reads the State under the heading "Situation".
+    """
     lines = ["Situation:", _as_text(state), "", f"Question: {question.instructions}"]
     match question:
         case ChoiceQuestion(criteria=criteria):
             lines += ["", "Options:"]
             for label, description in criteria.items():
-                shown = f"{label}: {description}" if description else label
-                lines.append(f"{forms[label][0]}. {shown}")
+                lines.append(f"{forms[label][0]}. {label}: {description}")
         case NoulQuestion(criteria=criteria):
             if criteria:
                 lines += [f"{label}: {criteria[label]}" for label in ("yes", "no")]
@@ -191,14 +194,28 @@ LFM3-1.7B wrote English when only asked to explain."""
 def _language(state: State) -> str:
     """Traditional Chinese when Han characters carry the State, English otherwise.
 
-    A Chinese word takes about two characters, so a State is Chinese when it has at least twice as
-    many Han characters as Latin words: a Chinese message that keeps a product or carrier name is
-    still Chinese, an English one quoting a Chinese name is still English. Traditional Chinese is
-    the only Chinese local-jev serves, so any Han text gets a Reason in it.
+    Only the State's own text counts, not a JSON State's keys. A Chinese State often keeps names,
+    codes, tables or program code in Latin script, which can outnumber its Chinese words; so it is
+    Chinese when it has at least half as many Han characters as Latin words. An English State
+    quoting a Chinese name has far fewer. (Over the 231 public Tasks and their Traditional-Chinese
+    copy, this tells every State's language apart; the closest Chinese State has 0.73 Han
+    characters per Latin word.) Traditional Chinese is the only Chinese local-jev serves, so any
+    Han text gets a Reason in it.
     """
-    text = _as_text(state)
+    text = "\n".join(_strings(state))
     han = len(_HAN.findall(text))
-    return "zh-TW" if han and han >= 2 * len(_LATIN_WORD.findall(text)) else "en"
+    return "zh-TW" if han and 2 * han >= len(_LATIN_WORD.findall(text)) else "en"
+
+
+def _strings(value: Any) -> list[str]:
+    """Every string value in a JSON value; a text State is one."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return [s for v in value for s in _strings(v)]
+    return []
 
 
 _HAN = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
@@ -215,10 +232,3 @@ def _logsumexp(logprobs: Sequence[float]) -> float:
     if top == -math.inf:
         return top
     return top + math.log(sum(math.exp(lp - top) for lp in logprobs))
-
-
-def _softmax(logprobs: Mapping[Label, float]) -> dict[Label, float]:
-    top = max(logprobs.values())
-    weights = {label: math.exp(lp - top) for label, lp in logprobs.items()}
-    total = sum(weights.values())
-    return {label: w / total for label, w in weights.items()}

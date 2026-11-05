@@ -11,6 +11,8 @@ from pathlib import Path
 import uvicorn
 from fastapi.testclient import TestClient
 
+from harness import fake_d1
+from local_jev.control_tokens import ControlTokens
 from local_jev.d1 import D1Decider
 from local_jev.decider import Decider
 from local_jev.option_id import OptionIDDecider
@@ -51,8 +53,13 @@ def serving(
 def serving_d1(
     model, device: str = "cpu", token: str | None = None, calibrations: Path | None = None
 ) -> Iterator[TestClient]:
-    """A running server with the d1 Decider over `model` (a fake or the real d1) on `device`."""
-    return serving(lambda: D1Decider(model, device=device), token=token, calibrations=calibrations)
+    """A running server with the d1 Decider over `model`, a fake d1, on `device`."""
+    control_tokens = ControlTokens(fake_d1.CONTROL_TOKENS)
+    return serving(
+        lambda: D1Decider(model, device=device, control_tokens=control_tokens),
+        token=token,
+        calibrations=calibrations,
+    )
 
 
 def serving_option_id(

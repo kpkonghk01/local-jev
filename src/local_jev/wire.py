@@ -27,7 +27,7 @@ from local_jev.decider import (
     ScoreQuestion,
     Usage,
 )
-from local_jev.distribution import NotADistribution, over_labels
+from local_jev.distribution import NotADistribution, argmax, over_labels
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +80,8 @@ def _choice(wire: dict, instructions: str) -> ChoiceQuestion:
         raise ValueError(f'multi-select choice ("multiple": true) is not supported; {_SUPPORTED}')
     criteria = wire.get("criteria")
     descriptions = criteria.values() if isinstance(criteria, dict) else ()
-    if not (descriptions and all(d is None or isinstance(d, str) for d in descriptions)):
+    # Every Label's Criterion is shown to the model, so each must say something.
+    if not (descriptions and all(isinstance(d, str) and d.strip() for d in descriptions)):
         hint = "; a list of levels is a score" if isinstance(criteria, list) else ""
         raise ValueError(
             'a choice\'s "criteria" names its options and says what each means, as '
@@ -193,7 +194,7 @@ def create_app(
 
         @app.middleware("http")
         async def require_token(request: Request, call_next):
-            if request.url.path == "/health" or _bears(request, token):
+            if request.url.path == "/health" or _carries_token(request, token):
                 return await call_next(request)
             return JSONResponse(
                 {"detail": "a missing or wrong bearer token"},
@@ -258,7 +259,8 @@ def create_app(
     return app
 
 
-def _bears(request: Request, token: str) -> bool:
+def _carries_token(request: Request, token: str) -> bool:
+    """Whether `request` carries `token` as `Authorization: Bearer <token>`."""
     scheme, _, credentials = request.headers.get("authorization", "").partition(" ")
     return scheme.lower() == "bearer" and hmac.compare_digest(
         credentials.strip().encode(), token.encode()
@@ -271,7 +273,7 @@ def _ms(seconds: float) -> float:
 
 def _answer(question: Question, distribution: Mapping[Label, float]) -> dict:
     """The wire answer to `question` whose Distribution is `distribution`."""
-    most_likely = max(distribution, key=distribution.__getitem__)
+    most_likely = argmax(distribution)
     match question:
         case NoulQuestion():
             return {"type": "noul", "noul": distribution["yes"]}
@@ -287,10 +289,11 @@ async def _refuse_malformed(request: Request, exc: RequestValidationError) -> JS
     jevbench counts a 422 as a wrong answer without counting it towards the consecutive failures
     that stop its run.
     """
-    return JSONResponse({"detail": "; ".join(map(_say, exc.errors()))}, status_code=422)
+    return JSONResponse({"detail": "; ".join(map(_described, exc.errors()))}, status_code=422)
 
 
-def _say(error: Mapping) -> str:
+def _described(error: Mapping) -> str:
+    """One of pydantic's validation errors as a plain sentence: where, and what is wrong."""
     if error["type"] == "json_invalid":
         return f"the request body is not valid JSON ({error['ctx']['error']} at {error['loc'][-1]})"
     where = ".".join(str(part) for part in error["loc"][1:])  # without the leading "body"

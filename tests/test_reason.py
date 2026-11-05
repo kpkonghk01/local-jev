@@ -4,12 +4,17 @@ The fake LM backend writes whatever text the test gives it, one token per word, 
 bound it is asked for, as the real backend is.
 """
 
+import json
+import re
+from pathlib import Path
+
 import pytest
 from harness import jevbench
 from harness.fake_d1 import FakeD1Model, d1_choice, d1_noul, d1_score
 from harness.fake_lm import FakeLMBackend
 from harness.server import serving_d1, serving_option_id
 
+from local_jev.bench import TASK_SETS
 from local_jev.option_id import REASON_MAX_TOKENS
 
 EASY_INTENT = jevbench.task("easy-intent-00")  # choice, 5 options; E is track_order
@@ -19,6 +24,10 @@ REASON = "The customer asks where a package they ordered last week is."
 
 def _explained(task: dict) -> dict:
     return {**jevbench.request_for(task), "explain": True}
+
+
+def _jsonl(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_with_explain_the_lfm3_answer_carries_the_reason_the_model_wrote():
@@ -95,6 +104,53 @@ def test_explain_is_true_or_false_and_nothing_else(explain):
 
     assert response.status_code == 422
     assert response.json()["detail"].startswith("explain: ")
+
+
+HAN = re.compile("[一-鿿]")
+CHINESE_REASON = "因為訊息在問包裹在哪裡。"
+ENGLISH_REASON = "Because the message asks where the parcel is."
+
+
+def _in_the_language_asked(shown: str) -> str:
+    """As LFM3-1.7B does: a Reason in the language of the request it answers, the last thing it
+    is asked, whatever the language of the State before it."""
+    asked = shown.rstrip().splitlines()[-1]
+    return CHINESE_REASON if HAN.search(asked) else ENGLISH_REASON
+
+
+ZH_TW_TASKS = [t for _, path in TASK_SETS["zh-tw"](Path("unused")) for t in _jsonl(path)]
+
+
+def test_every_traditional_chinese_state_gets_a_chinese_reason():
+    """Even where a State keeps English names, codes, tables or program code."""
+    backend = FakeLMBackend({"A": 0.4, "Yes": 0.3, "0": 0.3}, writes=_in_the_language_asked)
+    with serving_option_id(backend) as client:
+        reasons = {
+            t["id"]: client.post("/v1/systemone", json=_explained(t)).json()["answers"]["decision"]
+            for t in ZH_TW_TASKS
+        }
+
+    assert len(reasons) == 231
+    assert [i for i, answer in reasons.items() if answer["reason"] != CHINESE_REASON] == []
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        EASY_INTENT["state"],
+        jevbench.task("hard-opus-b-ambiguous-10")["state"],
+        "The customer, 王小明, asks where the parcel he ordered last week is.",
+        {"customer": "王小明", "message": "Where is the parcel I ordered last week?"},
+    ],
+    ids=["text", "long", "quoting-a-chinese-name", "json-quoting-a-chinese-name"],
+)
+def test_an_english_state_gets_an_english_reason(state):
+    backend = FakeLMBackend(LIKELY_TRACK_ORDER, writes=_in_the_language_asked)
+    with serving_option_id(backend) as client:
+        request = {**_explained(EASY_INTENT), "state": state}
+        answer = client.post("/v1/systemone", json=request).json()["answers"]["decision"]
+
+    assert answer["reason"] == ENGLISH_REASON
 
 
 D1_TRACK_ORDER = d1_choice(
