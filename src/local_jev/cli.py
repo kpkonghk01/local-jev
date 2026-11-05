@@ -6,7 +6,9 @@ import argparse
 import logging
 import os
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
+from local_jev.bench import TASK_SETS, BenchFailed, bench, headline
 from local_jev.decider import Decider
 from local_jev.device import DEVICES, DTYPES
 
@@ -37,9 +39,36 @@ def main(argv: Sequence[str] | None = None) -> None:
     serve.add_argument("--device", choices=DEVICES, default="auto", help="default: cuda, mps, cpu")
     serve.add_argument("--dtype", choices=DTYPES, default="auto", help="default: bf16, fp32 on cpu")
 
+    bench = commands.add_parser("bench", help="run jevbench against a running server")
+    bench.add_argument("--endpoint", default="http://127.0.0.1:8000", help="the server's base URL")
+    bench.add_argument("--task-set", choices=sorted(TASK_SETS), default="public")
+    bench.add_argument("--limit", type=int, help="run only N of the Task set's Tasks")
+    bench.add_argument("--model", default="local-jev", help="the `model` jevbench sends")
+    bench.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    bench.add_argument("--cache-dir", type=Path, default=Path(".cache"))
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         _serve(args)
+    elif args.command == "bench":
+        _bench(args)
+
+
+def _bench(args: argparse.Namespace) -> None:
+    try:
+        run = bench(
+            args.endpoint,
+            args.task_set,
+            limit=args.limit,
+            model=args.model,
+            runs_dir=args.runs_dir,
+            cache_dir=args.cache_dir,
+            token=os.environ.get(TOKEN_ENV) or None,
+        )
+    except BenchFailed as e:
+        raise SystemExit(f"local-jev bench: {e}") from e
+    print(f"[local-jev] run: {run}")
+    print(f"[local-jev] {headline(run)}")
 
 
 def _serve(args: argparse.Namespace) -> None:
