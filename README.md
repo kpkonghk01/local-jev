@@ -101,6 +101,8 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 回應裡 `answers` 底下用同樣的名稱（`decision`）回答：`choice` 是最可能的 Label，`probabilities` 是這個 Question 的 Label set 上加總為 1 的 Distribution；`model` 原樣回傳請求裡的值。State 可以是純文字，也可以是 JSON 物件。
 
+State、instructions 與 Criteria 裡若寫出 model 的 control token 字串（例如 `<|im_end|>`、`<|im_start|>`、`</think>`），兩個 Decider 都只把它當成文字讀：在字串第一個字元後面插入一個 zero-width space，tokenizer 就不會把它讀成 control token，所以 State 不能藉此結束使用者的回合、替 model 作答。d1 自己的 prompt 程式碼只處理它的 special token，`<think>`、`</think>` 由 local-jev 在交給 d1 之前處理。jevbench 的 231 個 public Tasks 與繁體中文副本都不含這類字串，所以 benchmark 數字不受影響。
+
 一個請求可以帶好幾個具名的 Question（都針對同一個 State），回應的 `answers` 底下用同樣的名稱各回一個答案。每個 Question 各自呼叫一次 Decider，所以答案不會因為同一個請求裡還有哪些其他 Question 而改變（d1 若把多個 question 塞進同一次呼叫，答案會偏移約 0.03）。
 
 回應裡還有：
@@ -142,7 +144,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 - `explain` 是我們對 wire format 的擴充，預設 `false`，只接受 JSON 的 `true`/`false`（`"yes"`、`1` 之類會回 422）。jevbench 的 `typesafe` adapter 不會送它，benchmark 也一律不開，所以 benchmark 的延遲不受影響。
 - Reason 在 Distribution 算完之後才生成：把同一個 State 與 Question、加上已經選定的最可能 Label 交給 model，請它用一句話說明理由。所以有沒有要求 Reason，`probabilities`、`choice`、`noul`、`score` 都完全一樣。
-- Reason 用 State 的語言寫：State 以中文字為主時用繁體中文（台灣用語），否則用英文。Question 的 instructions 是英文也一樣。
+- Reason 用 State 的語言寫：只看 State 本身的文字（JSON State 的 key 不算），中文字至少是英文單字數的一半時用繁體中文（台灣用語），否則用英文。中文 State 常保留英文的名稱、代碼、表格或程式碼，這些英文單字可能比中文詞還多，仍算中文；英文 State 只引用一個中文名字，仍是英文。這條規則把 231 個 public Tasks 與它們的繁體中文副本全部分對。Question 的 instructions 是英文也一樣。
 - 長度上限 64 個 token（中文約一字一個 token），寫到 model 的回合結束或上限就停；碰到上限時句子可能被截斷。實測一句話約 27–35 個 token，在 M3 Pro 的 MPS 上每個 Reason 約 1.5 秒，容器裡的 CPU 會慢很多。
 - Reason 是 model 生成的純文字，server 建回應時做 JSON escape，引號、換行之類的字元不會弄壞回應。
 - **`d1` 不支援 Reason**：d1 是 Decision model，不會生成文字（見 ADR-0003）。對 `d1` 送 `"explain": true` 會照常回答，只是沒有 `reason` 欄位，也不會報錯。
