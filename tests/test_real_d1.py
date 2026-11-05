@@ -18,8 +18,16 @@ def d1_server():
         yield client
 
 
-@pytest.mark.parametrize("task_id", ["easy-intent-00", "hard-opus-b-ambiguous-10"])
-def test_real_d1_answers_a_public_choice_task_validly(d1_server, task_id):
+@pytest.mark.parametrize(
+    "task_id",
+    [
+        "easy-intent-00",
+        "hard-opus-b-ambiguous-10",
+        "easy-fact-00",  # noul
+        "original-ordinal-01-0",  # score, 4 levels
+    ],
+)
+def test_real_d1_answers_a_public_task_validly(d1_server, task_id):
     task = jevbench.task(task_id)
     response = d1_server.post("/v1/systemone", json=jevbench.request_for(task, "d1-2B"))
 

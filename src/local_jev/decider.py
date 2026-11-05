@@ -6,7 +6,7 @@ Chat model) is one implementation of `Decider`.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Protocol
 
@@ -29,7 +29,33 @@ class ChoiceQuestion:
         return tuple(self.criteria)
 
 
-type Question = ChoiceQuestion
+@dataclass(frozen=True)
+class NoulQuestion:
+    """Yes or no; `criteria`, when given, says what each Label ("yes", "no") means."""
+
+    type: ClassVar[Literal["noul"]] = "noul"
+    labels: ClassVar[tuple[Label, ...]] = ("yes", "no")
+    instructions: str
+    criteria: Mapping[Label, str] | None = None
+
+
+@dataclass(frozen=True)
+class ScoreQuestion:
+    """One level on an ordered scale; `criteria` describes each level, lowest first.
+
+    The Labels are the level indices as strings, "0" for the lowest.
+    """
+
+    type: ClassVar[Literal["score"]] = "score"
+    instructions: str
+    criteria: Sequence[str]
+
+    @property
+    def labels(self) -> tuple[Label, ...]:
+        return tuple(str(level) for level in range(len(self.criteria)))
+
+
+type Question = ChoiceQuestion | NoulQuestion | ScoreQuestion
 
 
 @dataclass(frozen=True)

@@ -9,8 +9,8 @@ Mirrors jevbench at commit 609a664e81f46e03731600bd7bd9f1b7a61257c5
   strict Distribution rules (jevbench/scoring.py, `validate_probs` with `SUM_TOL`).
 
 The sample Tasks in `jevbench_tasks.jsonl` are verbatim lines from jevbench's public datasets
-(easy.jsonl line 1, hard.jsonl line 22). Copyright (c) 2026 Florian Standhartinger and
-contributors, MIT License.
+(easy.jsonl lines 1 and 13, hard.jsonl line 22, original.jsonl line 25).
+Copyright (c) 2026 Florian Standhartinger and contributors, MIT License.
 """
 
 from __future__ import annotations
@@ -63,14 +63,28 @@ def rejections(task: dict, status: int, text: str) -> list[str]:
     qtype = task["question"]["type"]
     if ans.get("type") != qtype:
         return ["native answer type mismatch"]
-    if qtype == "choice":
+    if qtype == "noul":
+        if "noul" not in ans:
+            return ["answer parse failed: 'noul'"]
+        p = ans["noul"]
+        if isinstance(p, bool) or not isinstance(p, int | float):
+            return [f"noul must be numeric, not {p!r}"]
+        if not 0.0 <= p <= 1.0:
+            return [f"noul out of range: {p}"]
+        probs = {"yes": float(p), "no": 1.0 - p}
+    elif qtype == "choice":
         if ans.get("choice") not in task["labels"]:
             return [f"choice {ans.get('choice')!r} is not one of the Labels"]
         probs = ans.get("probabilities")
         if not isinstance(probs, dict):
             return ["choice answer missing probabilities"]
+    elif qtype == "score":
+        # jevbench never checks the `score` field itself; it takes the argmax of `probabilities`.
+        probs = ans.get("probabilities")
+        if not isinstance(probs, dict):
+            return ["score answer missing probabilities"]
     else:
-        raise NotImplementedError(f"acceptance rules for {qtype!r} are not mirrored yet")
+        raise ValueError(f"jevbench has no Question type {qtype!r}")
     return _distribution_problems(probs, task["labels"])
 
 
