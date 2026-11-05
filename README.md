@@ -132,6 +132,8 @@ State、instructions 與 Criteria 裡若寫出 model 的 control token 字串（
 
 `score` 的 `probabilities` 以等級 index 字串（`"0"` 到 `"N-1"`）為 key。d1 自己的 `score` 欄位是中位數等級，不一定是最可能的等級，所以不採用。
 
+最可能的 Label 若有好幾個機率相同，`choice` 與 `score` 都取依字串排序最前面的那個，跟 jevbench 算 argmax 的規則一樣，所以回應裡的答案就是 jevbench 計分時用的那個。
+
 ### 要求 Reason（`explain`）
 
 想知道某個 Decision 為什麼這樣判斷時（例如在看自己的資料），在請求裡加上 `"explain": true`，`lfm3` 會在每個答案裡多一個 `reason` 欄位：

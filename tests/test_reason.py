@@ -4,7 +4,6 @@ The fake LM backend writes whatever text the test gives it, one token per word, 
 bound it is asked for, as the real backend is.
 """
 
-import json
 import re
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from harness.fake_lm import FakeLMBackend
 from harness.server import serving_d1, serving_option_id
 
 from local_jev.bench import TASK_SETS
+from local_jev.files import read_jsonl
 from local_jev.option_id import REASON_MAX_TOKENS
 
 EASY_INTENT = jevbench.task("easy-intent-00")  # choice, 5 options; E is track_order
@@ -24,10 +24,6 @@ REASON = "The customer asks where a package they ordered last week is."
 
 def _explained(task: dict) -> dict:
     return {**jevbench.request_for(task), "explain": True}
-
-
-def _jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def test_with_explain_the_lfm3_answer_carries_the_reason_the_model_wrote():
@@ -118,7 +114,7 @@ def _in_the_language_asked(shown: str) -> str:
     return CHINESE_REASON if HAN.search(asked) else ENGLISH_REASON
 
 
-ZH_TW_TASKS = [t for _, path in TASK_SETS["zh-tw"](Path("unused")) for t in _jsonl(path)]
+ZH_TW_TASKS = [t for _, path in TASK_SETS["zh-tw"](Path("unused")) for t in read_jsonl(path)]
 
 
 def test_every_traditional_chinese_state_gets_a_chinese_reason():

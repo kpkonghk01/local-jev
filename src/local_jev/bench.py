@@ -22,7 +22,7 @@ from itertools import zip_longest
 from pathlib import Path
 from typing import NamedTuple
 
-from local_jev.decider import Pinned, Runtime
+from local_jev.decider import PinnedModel, Runtime
 from local_jev.figures import number, percent
 from local_jev.files import create_new, read_json, read_jsonl, utc_stamp
 
@@ -215,7 +215,7 @@ def headline(run: Path) -> str:
     summary = read_json(run / "summary.json")
     server = record["server"]
     who = (
-        f"{Pinned.of(server)} on {server['device']}, "
+        f"{PinnedModel.of(server)} on {server['device']}, "
         + ("calibrated" if server.get("calibration") else "raw")
         if server
         else "an unidentified server"

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from local_jev.bench import TASK_SETS, BenchFailed, bench, headline
 from local_jev.calibration import CALIBRATIONS_DIR, REPORT_FILE, CalibrationRefused, calibrate
-from local_jev.decider import Decider, Pinned
+from local_jev.decider import Decider, PinnedModel
 from local_jev.device import DEVICES, DTYPES
 from local_jev.figures import number, percent
 from local_jev.report import ReportRefused, compare, write_new_report
@@ -185,7 +185,7 @@ def _calibrate(args: argparse.Namespace) -> None:
         raise SystemExit(f"local-jev calibrate: {e}") from e
     cv = report["cross_validation"]
     raw, calibrated = cv["raw"], cv["calibrated"]
-    print(f"[local-jev] {Pinned.of(report)}, run {report['run']}, {raw['n']} Tasks")
+    print(f"[local-jev] {PinnedModel.of(report)}, run {report['run']}, {raw['n']} Tasks")
     temperatures = ", ".join(f"{t} {v:g}" for t, v in report["temperatures"].items())
     print(f"[local-jev] temperatures: {temperatures}")
     print(f"[local-jev] {cv['folds']}-fold cross-validated, raw -> calibrated:")
