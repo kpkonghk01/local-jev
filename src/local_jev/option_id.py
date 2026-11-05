@@ -10,9 +10,11 @@ With `explain`, a Reason is generated afterwards, from the same Situation and Qu
 most likely Label given as the answer, and asked for in the State's language (Traditional Chinese
 or English), so it explains the Decision and cannot change it.
 
-Known risk, not mitigated here: on a 3-option probe LFM3-1.7B picked whichever of two plausible
-options was listed later, at 0.85-1.00, in every one of the 6 orders (a recency bias). Averaging
-over option orders would fix the order, not the model, and would cost more than one pass.
+Known risk, not mitigated here: the letter position sways LFM3-1.7B. On a 3-option probe it picked
+whichever of two plausible options was listed later, at 0.85-1.00, in every one of the 6 orders;
+on the 231 public Tasks it leaned the other way, picking A in 57 of 139 choices where A was right in
+30 (docs/feasibility-report.md). Averaging over option orders would fix the order, not the model,
+and would cost more than one pass.
 """
 
 from __future__ import annotations

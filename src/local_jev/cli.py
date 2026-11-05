@@ -48,6 +48,9 @@ def _load_lfm3(args: argparse.Namespace) -> Decider:
 
 
 DECIDERS: dict[str, LoadDecider] = {"d1": _load_d1, "lfm3": _load_lfm3}
+DEFAULT_DECIDER = "d1"
+"""Served when `serve` is given no `--decider`: on the 231 public Tasks d1 was the more accurate
+Decider (76.6% against 62.3%; docs/feasibility-report.md)."""
 CHAT_MODEL_DECIDERS = ("lfm3",)
 """Deciders over a Chat model, which take chat-template options."""
 
@@ -74,7 +77,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="serve one Decider over /v1/systemone")
-    serve.add_argument("--decider", choices=sorted(DECIDERS), required=True)
+    serve.add_argument(
+        "--decider", choices=sorted(DECIDERS), default=DEFAULT_DECIDER, help="default: %(default)s"
+    )
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--device", choices=DEVICES, default="auto", help="default: cuda, mps, cpu")

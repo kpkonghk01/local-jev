@@ -57,5 +57,5 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable
 USER app
 EXPOSE 8000
-# Pick the Decider when running it: `docker run … local-jev:runtime --decider d1`.
+# Serves d1 unless told otherwise: `docker run … local-jev:runtime --decider lfm3`.
 ENTRYPOINT ["local-jev", "serve", "--host", "0.0.0.0", "--port", "8000"]
