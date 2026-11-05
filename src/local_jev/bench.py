@@ -74,7 +74,7 @@ def fetch_jevbench(cache_dir: Path) -> Path:
     checkout = cache_dir / "jevbench" / JEVBENCH_COMMIT
     if _head(checkout) == JEVBENCH_COMMIT:
         return checkout
-    url = os.environ.get(JEVBENCH_URL_ENV) or JEVBENCH_URL
+    url = _jevbench_url()
     print(f"[local-jev] fetching jevbench {JEVBENCH_COMMIT[:7]} from {url}", flush=True)
     checkout.parent.mkdir(parents=True, exist_ok=True)
     # Fetched beside the cache and moved in whole, so an interrupted fetch leaves no checkout.
@@ -91,6 +91,11 @@ def fetch_jevbench(cache_dir: Path) -> Path:
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return checkout
+
+
+def _jevbench_url() -> str:
+    """Where jevbench is fetched from: the mirror in `LOCAL_JEV_JEVBENCH_URL`, if set."""
+    return os.environ.get(JEVBENCH_URL_ENV) or JEVBENCH_URL
 
 
 def _head(checkout: Path) -> str | None:
@@ -186,7 +191,7 @@ def bench(
     (run / "summary.json").write_text(summarized.stdout, encoding="utf-8")
     _write_decisions(run / "decisions.jsonl", tasks, results)
     record = {
-        "jevbench": {"url": JEVBENCH_URL, "commit": JEVBENCH_COMMIT},
+        "jevbench": {"url": _jevbench_url(), "commit": JEVBENCH_COMMIT},
         "endpoint": endpoint,
         "task_set": task_set,
         "limit": limit,

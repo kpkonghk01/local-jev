@@ -316,7 +316,7 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 | `ledger.jsonl`、`manifest.json` | jevbench 的成本 ledger 與 run 設定（含 `dataset_hash`） |
 | `summary.json` | jevbench `summarize` 的輸出：`accuracy`、`brier_mean`、`ece`、`schema_validity`（Valid answers）、`latency.p50_s`/`p95_s`（client 端）等 |
 | `decisions.jsonl` | 每個 Task 一行：server 給的 Distribution 和預期的 Label 放在一起，給 calibration 用（格式見下） |
-| `run.json` | 這次 run 的紀錄：jevbench 的 URL 與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision、硬體（`cuda`、`mps` 或 `cpu`）與 `calibration`（raw 時是 `null`） |
+| `run.json` | 這次 run 的紀錄：jevbench 的 URL（有設 `LOCAL_JEV_JEVBENCH_URL` 時是那個 mirror）與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision、硬體（`cuda`、`mps` 或 `cpu`）與 `calibration`（raw 時是 `null`） |
 | `calibration-report.json` | 只有跑過 `local-jev calibrate` 才有：cross-validated 的 calibration 報告（格式見「Calibration」） |
 
 `run.json` 只在整個 run 成功跑完才會寫入。jevbench 中途停止（遇到 401、403、429，或連續三次失敗）時，`local-jev bench` 以非零 exit code 結束並說明跑到第幾個 Task；目錄裡留著 jevbench 已寫的結果與 raw evidence 供除錯，但沒有 `summary.json`、`decisions.jsonl`、`run.json`。

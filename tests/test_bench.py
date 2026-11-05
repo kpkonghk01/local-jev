@@ -274,6 +274,15 @@ def test_jevbench_is_fetched_at_the_pinned_commit_and_then_reused(
     assert len(_jsonl(run / "results.jsonl")) == 2
 
 
+def test_a_run_records_the_mirror_jevbench_is_fetched_from(tmp_path, monkeypatch, jevbench_mirror):
+    monkeypatch.setenv("LOCAL_JEV_JEVBENCH_URL", jevbench_mirror)
+    with listening(_fake_d1()) as endpoint:
+        run = _bench_with_cache(endpoint, tmp_path, tmp_path / "cache")
+    record = json.loads((run / "run.json").read_text())
+
+    assert record["jevbench"] == {"url": jevbench_mirror, "commit": JEVBENCH_COMMIT}
+
+
 def test_a_cached_checkout_at_another_commit_is_fetched_again(
     tmp_path, monkeypatch, jevbench_mirror
 ):
