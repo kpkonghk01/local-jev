@@ -147,6 +147,16 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 整個請求只要有一個 Question 有問題就整個拒絕，不會先回答其他 Question。用 422 而不是 400，是因為 jevbench 把 422 算成答錯，但不計入「連續三次失敗就停止整個 run」的規則。
 
+### 用 bearer token 保護（選用）
+
+```sh
+LOCAL_JEV_TOKEN=換成你的-token uv run local-jev serve --decider d1 --host 0.0.0.0
+```
+
+- 有設 `LOCAL_JEV_TOKEN`（非空字串）時，`/v1/systemone` 必須帶 `Authorization: Bearer <token>`，沒帶或錯了都回 401。`/health` 不需要 token，方便 compose 做 health check。
+- 沒設時，帶任何 token 或不帶都接受。jevbench 的 `typesafe` adapter 預設一定會送一個 token（環境變數空著它就不肯跑），所以本機跑 benchmark 時隨便設一個假值即可，例如 `TYPESAFE_API_KEY=local`。`local-jev bench` 會自動處理（見「跑 benchmark」）。
+- Server 有設 token 時，把同一個值放進 jevbench `--key-env` 指定的環境變數。用 `local-jev bench` 時，只要在同一個 shell 設好 `LOCAL_JEV_TOKEN` 即可。
+
 ## 用 compose 在容器裡執行（CPU 與 GPU）
 
 需求：Docker 與 Compose v2（Mac 上用 [OrbStack](https://orbstack.dev/)）。`compose.yaml` 每個 Decider 一個 service，各自放在同名的 profile 底下，所以只有指定的那個會啟動；沒給 `--profile` 就什麼都不啟動。
@@ -204,16 +214,6 @@ docker compose -f compose.yaml -f compose.gpu.yaml --profile d1 up -d --wait
 - Host 需要 NVIDIA driver（570.26 以上，CUDA 12.8 的要求）與 NVIDIA Container Toolkit。Image 不用 `nvidia/cuda` 當 base：torch 的 wheel 自帶 CUDA library。
 - 在 GPU host 上 compose 會直接建 linux/amd64 的 image，裡面是 CUDA 12.8 版的 torch。在 Mac 上也可以用模擬的方式建同一個 image（`docker build --platform linux/amd64 --target runtime .`，OrbStack 上約 13 分鐘），但不能在 Mac 上跑 CUDA。
 - GPU 記憶體夠的話，兩個 Decider 可以同時跑（`--profile d1 --profile lfm3`，port 各自是 8000 與 8001）。
-
-### 用 bearer token 保護（選用）
-
-```sh
-LOCAL_JEV_TOKEN=換成你的-token uv run local-jev serve --decider d1 --host 0.0.0.0
-```
-
-- 有設 `LOCAL_JEV_TOKEN`（非空字串）時，`/v1/systemone` 必須帶 `Authorization: Bearer <token>`，沒帶或錯了都回 401。`/health` 不需要 token，方便 compose 做 health check。
-- 沒設時，帶任何 token 或不帶都接受。jevbench 的 `typesafe` adapter 預設一定會送一個 token（環境變數空著它就不肯跑），所以本機跑 benchmark 時隨便設一個假值即可，例如 `TYPESAFE_API_KEY=local`。`local-jev bench` 會自動處理（見下節）。
-- Server 有設 token 時，把同一個值放進 jevbench `--key-env` 指定的環境變數。用 `local-jev bench` 時，只要在同一個 shell 設好 `LOCAL_JEV_TOKEN` 即可。
 
 ## 跑 benchmark（jevbench）
 
