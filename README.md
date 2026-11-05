@@ -7,6 +7,8 @@
 - `lfm3`：LFM3 Option-ID Decider。`LiquidAI/LFM3-1.7B`（Chat model）透過 Option-ID scoring 回答：關掉 thinking，一次 forward pass 讀出每個 Option ID 的 next-token 機率，再在 Label set 上正規化。固定在 revision `0dc4268b561499c648c7ba7c9466bf3d8d01517a`。
 - `d1`：`LiquidAI/d1-2B`（Decision model），透過它自己的 `system_one` head 一次 forward pass 直接回答，固定在 revision `652f920e544ea37f81e4b0ce89b81d4ed0da90b1`。
 
+> **授權限制：LFM3-1.7B 與 d1-2B 都採用 LFM Open License v1.0，年營收達 1,000 萬美元（USD 10,000,000）或以上的法人，商業使用不在授權範圍內。** 這類公司要用這兩個 model 做商業用途，必須另外向 Liquid AI 取得授權，或用 `--model`/`--revision` 換成授權允許的其他 model。授權全文在 model 的 Hugging Face repo 裡（`LICENSE`）。這個限制只針對 model 權重；jevbench 的 Tasks 與 `src/local_jev/zh_tw/` 的繁體中文副本是 MIT License。
+
 ## 在 Mac 上原生執行（`uv run`）
 
 需求：Apple Silicon Mac、[uv](https://docs.astral.sh/uv/)。Python 3.12 與所有相依套件都由 uv 依 `uv.lock` 安裝，不需另外準備。
