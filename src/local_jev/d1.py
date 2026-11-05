@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from typing import Any, Protocol
 
-from local_jev.decider import ChoiceQuestion, Decision, Question, Runtime, State, Usage
+from local_jev.decider import (
+    ChoiceQuestion,
+    Decision,
+    Label,
+    NoulQuestion,
+    Question,
+    Runtime,
+    ScoreQuestion,
+    State,
+    Usage,
+)
 from local_jev.device import pick_device, pick_dtype
 
 D1_MODEL_ID = "LiquidAI/d1-2B"
@@ -43,15 +54,31 @@ class D1Decider:
         # shift with the other Questions in the request.
         out = self._model.system_one(state, {_NAME: _to_d1(question)})
         answer = out["answers"][_NAME]
-        return Decision(distribution=answer["probabilities"], usage=_usage(out))
+        return Decision(distribution=_distribution(question, answer), usage=_usage(out))
 
 
 def _to_d1(question: Question) -> dict:
-    return {
-        "type": question.type,
-        "instructions": question.instructions,
-        "criteria": dict(question.criteria),
-    }
+    """`question` in d1's own question format."""
+    d1_question = {"type": question.type, "instructions": question.instructions}
+    match question:
+        case ChoiceQuestion(criteria=criteria):
+            d1_question["criteria"] = dict(criteria)
+        case NoulQuestion(criteria=None):
+            pass
+        case NoulQuestion(criteria=criteria):
+            d1_question["criteria"] = {"true": criteria["yes"], "false": criteria["no"]}
+        case ScoreQuestion(criteria=criteria):
+            d1_question["criteria"] = list(criteria)
+    return d1_question
+
+
+def _distribution(question: Question, answer: dict) -> Mapping[Label, float]:
+    """d1's `answer` to `question` as a raw Distribution over the Question's Labels."""
+    if isinstance(question, NoulQuestion):
+        return {"yes": answer["noul"], "no": 1 - answer["noul"]}
+    # choice: keyed by Label; score: keyed by level index strings, "0" to "N-1". d1's own `score`
+    # field is its median level, not the most likely one, so it is not used.
+    return answer["probabilities"]
 
 
 def _usage(out: dict) -> Usage:

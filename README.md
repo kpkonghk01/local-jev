@@ -74,6 +74,26 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 請求一次處理一個：同時送來的請求會排隊，不會交錯使用模型。
 
+### 三種 Question type
+
+| type | `criteria` | 答案 |
+| --- | --- | --- |
+| `choice` | `{label: 說明}`，至少一個選項 | `{"type": "choice", "choice": <最可能的 Label>, "probabilities": {label: …}}` |
+| `noul` | 選用，`{"true": "yes 代表什麼", "false": "no 代表什麼"}` | `{"type": "noul", "noul": <P(yes)>}` |
+| `score` | 2 到 10 個等級說明的 list，由低到高 | `{"type": "score", "score": <最可能的等級>, "probabilities": {"0": …, "1": …}}` |
+
+`score` 的 `probabilities` 以等級 index 字串（`"0"` 到 `"N-1"`）為 key。d1 自己的 `score` 欄位是中位數等級，不一定是最可能的等級，所以不採用。
+
+### 錯誤的請求回 422
+
+不支援的 Question type（`text`、`number`、`date`、`box`、`boxes`、多選 `choice`，也就是 `"multiple": true`）與格式錯誤的請求，一律回 HTTP 422，`detail` 是一句話，指出哪裡錯、該怎麼改，例如：
+
+```json
+{"detail": "questions.decision: a score's \"criteria\" lists 2 to 10 levels, lowest first, as [\"Can wait\", \"Today\", \"Now\"]; this one lists 11"}
+```
+
+整個請求只要有一個 Question 有問題就整個拒絕，不會先回答其他 Question。用 422 而不是 400，是因為 jevbench 把 422 算成答錯，但不計入「連續三次失敗就停止整個 run」的規則。
+
 ### 用 bearer token 保護（選用）
 
 ```sh
