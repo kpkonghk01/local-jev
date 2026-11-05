@@ -5,7 +5,9 @@
 目前可用的 Decider：
 
 - `lfm3`：LFM3 Option-ID Decider。`LiquidAI/LFM3-1.7B`（Chat model）透過 Option-ID scoring 回答：關掉 thinking，一次 forward pass 讀出每個 Option ID 的 next-token 機率，再在 Label set 上正規化。固定在 revision `0dc4268b561499c648c7ba7c9466bf3d8d01517a`。
-- `d1`：`LiquidAI/d1-2B`（Decision model），透過它自己的 `system_one` head 一次 forward pass 直接回答，固定在 revision `652f920e544ea37f81e4b0ce89b81d4ed0da90b1`。
+- `d1`：`LiquidAI/d1-2B`（Decision model），透過它自己的 `system_one` head 一次 forward pass 直接回答，固定在 revision `652f920e544ea37f81e4b0ce89b81d4ed0da90b1`。**這是預設的 Decider**（見「選擇 Decider」）。
+
+量測結果與可行性結論在 [`docs/feasibility-report.md`](docs/feasibility-report.md)（繁體中文），比較報告原文在 [`docs/comparison-report.md`](docs/comparison-report.md)。
 
 > **授權限制：LFM3-1.7B 與 d1-2B 都採用 LFM Open License v1.0，年營收達 1,000 萬美元（USD 10,000,000）或以上的法人，商業使用不在授權範圍內。** 這類公司要用這兩個 model 做商業用途，必須另外向 Liquid AI 取得授權，或用 `--model`/`--revision` 換成授權允許的其他 model。授權全文在 model 的 Hugging Face repo 裡（`LICENSE`）。這個限制只針對 model 權重；jevbench 的 Tasks 與 `src/local_jev/zh_tw/` 的繁體中文副本是 MIT License。
 
@@ -15,7 +17,7 @@
 
 ```sh
 uv sync                                  # 第一次：建立 .venv 並安裝鎖定的版本
-uv run local-jev serve --decider lfm3    # 或 --decider d1；預設聽 127.0.0.1:8000
+uv run local-jev serve                   # 預設的 d1；要 LFM3 用 --decider lfm3；預設聽 127.0.0.1:8000
 ```
 
 > **第一次啟動會下載模型。** `LiquidAI/LFM3-1.7B` 約 3.2 GB、`LiquidAI/d1-2B` 約 3.6 GB，會下載到 Hugging Face 快取（預設 `~/.cache/huggingface/hub`，可用 `HF_HOME` 改位置），之後的啟動直接讀快取。下載期間 server 已經在聽，但 health 會回報尚未就緒。下載完成後可以設 `HF_HUB_OFFLINE=1`，省掉啟動時對 Hub 的查詢。
@@ -24,7 +26,7 @@ uv run local-jev serve --decider lfm3    # 或 --decider d1；預設聽 127.0.0.
 
 | 選項 | 預設 | 說明 |
 | --- | --- | --- |
-| `--decider` | （必填） | `lfm3` 或 `d1`，見下方「選擇 Decider」 |
+| `--decider` | `d1` | `d1` 或 `lfm3`，見下方「選擇 Decider」 |
 | `--host` | `127.0.0.1` | 要讓其他機器連線時改成 `0.0.0.0` |
 | `--port` | `8000` | |
 | `--device` | `auto` | 自動依序選 CUDA → MPS → CPU；可指定 `cuda`、`mps`、`cpu` |
@@ -39,7 +41,9 @@ uv run local-jev serve --decider lfm3    # 或 --decider d1；預設聽 127.0.0.
 
 ### 選擇 Decider
 
-每個 server process 只載入一個 Decider，啟動時用 `--decider` 選定；要比較兩者就各開一個 server（不同 port）分別跑 benchmark。兩個 Decider 對外的 wire format 完全一樣。
+每個 server process 只載入一個 Decider，啟動時用 `--decider` 選定，沒給就是 `d1`；要比較兩者就各開一個 server（不同 port）分別跑 benchmark。兩個 Decider 對外的 wire format 完全一樣。
+
+**預設是 `d1`。** 依議定的標準（在 231 個英文 public Tasks 上先比 Accuracy，再比 cross-validated Brier），`d1` 明顯勝出：Accuracy 76.6% 對 62.3%，calibration 後的 Brier 0.275 對 0.495（M3 Pro、MPS，2026-11-05；見 [`docs/feasibility-report.md`](docs/feasibility-report.md)）。兩者都沒有達到 Accuracy ≥ 80% 且 Brier ≤ 0.20 的標準。`lfm3` 仍然保留，用在需要 Reason 或想換別的 Chat model 的時候。
 
 | | `lfm3` | `d1` |
 | --- | --- | --- |
@@ -47,7 +51,9 @@ uv run local-jev serve --decider lfm3    # 或 --decider d1；預設聽 127.0.0.
 | 怎麼得到 Distribution | Option-ID scoring：`choice` 的選項依 Criteria 送來的順序標成 A–Z，`noul` 讀 yes/no（`Yes`/`yes`、`No`/`no` 合併計算），`score` 讀等級數字 0–9；在 Label set 上正規化 | d1 自己的 decision head |
 | 每個 Decision 的成本 | 一次 forward pass，不生成任何 token | 一次 forward pass |
 | Reason（`explain`） | 支援，見下方「要求 Reason」 | 不支援：照常回答，不帶 `reason`，也不報錯 |
-| MPS 上的延遲（M3 Pro） | 每個 Decision 約 115–240 ms（prompt 80–530 tokens） | 約 65–120 ms（prompt 約 65–75 tokens） |
+| 231 個 public Tasks（raw → calibrated, 5-fold CV） | Accuracy 62.3%，Brier 0.626 → 0.495，ECE 0.272 → 0.038 | Accuracy 76.6%，Brier 0.285 → 0.275，ECE 0.072 → 0.060 |
+| 繁體中文的 231 個 Tasks（同上） | Accuracy 58.0%，Brier 0.693 → 0.522，ECE 0.302 → 0.050 | Accuracy 78.8%，Brier 0.291 → 0.287，ECE 0.069 → 0.057 |
+| MPS 上 server 端的延遲（M3 Pro，public Tasks，p50 / p95） | 162 / 2340 ms | 128 / 2180 ms |
 | 記憶體（MPS bf16，driver） | 約 4.1 GB | 約 5.4 GB |
 
 `lfm3` 在啟動時會先確認每個 Option ID（A–Z、yes/Yes/no/No、0–9）在被讀取的位置剛好是一個 token，不是的話 health 會回報 `failed`，不會等到第一個請求才出錯。
@@ -64,7 +70,9 @@ uv run local-jev serve --decider lfm3 \
 - chat template 選項依 model 而定；Option ID 直接接在 chat template 的 generation prompt 之後讀取，所以 template 必須在那裡結束（例如 LFM3 的 `<think></think>`）。
 - `--model`/`--revision` 也適用 `d1`（換另一個 d1 checkpoint）。
 
-**已知風險：`lfm3` 有很強的 recency bias。** 研究時用同一個三選一的問題試過全部 6 種選項順序，LFM3-1.7B 每次都選兩個合理選項中「排在後面」的那個，機率 0.85–1.00。這會拉高 Brier 分數，temperature calibration 也修不了 argmax。v1 不處理它：把多種選項順序平均起來可以抵銷順序的影響，但每個 Decision 就不再只要一次 forward pass。
+延遲的 p95 來自 hard 裡的長 State（1,000–3,700 tokens 的 prompt 約 2 秒）；短的 State 約 100–170 ms。
+
+**已知風險：`lfm3` 有很強的選項位置偏差，而且過度自信。** 研究時用同一個三選一的問題試過全部 6 種選項順序，LFM3-1.7B 每次都選兩個合理選項中「排在後面」的那個（recency）；但在 231 個 public Tasks 上偏的是第一個選項：139 個 `choice` 裡它選 A 57 次，A 是正確答案的只有 30 次，答錯時 50 次裡有 38 次選了比正確答案更前面的選項。`noul` 它 74 題裡答 yes 59 次（正確是 35 次）。答錯的 Decision 平均 confidence 0.83，calibration 擬合出很大的 temperature（`noul` T ≈ 12.4），但 temperature 修不了 argmax。v1 不處理它：把多種選項順序平均起來可以抵銷順序的影響，但每個 Decision 就不再只要一次 forward pass。
 
 ### 確認服務就緒
 
@@ -347,7 +355,7 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 
 ### Calibration 檔案
 
-每個 Decider 的 calibration 是一個 committed 的檔案 `src/local_jev/calibrations/<decider>.json`（`d1.json`、`lfm3.json`）。它在 package 裡面，會跟著安裝，所以不管從哪個目錄啟動 server、或在容器裡跑，都讀得到。
+每個 Decider 的 calibration 是一個 committed 的檔案 `src/local_jev/calibrations/<decider>.json`（`d1.json`、`lfm3.json`）。它在 package 裡面，會跟著安裝，所以不管從哪個目錄啟動 server、或在容器裡跑，都讀得到。兩個檔案都是用各自在 MPS 上、全部 231 個英文 public Tasks 的 raw run 擬合的（2026-11-05），所以 `serve` 預設就會套用；要 raw 請加 `--no-calibration`。
 
 ```json
 {
@@ -355,7 +363,7 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
   "model": "LiquidAI/d1-2B",
   "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1",
   "temperatures": {"choice": 1.0321, "noul": 2.1097, "score": 1.2695},
-  "fitted_from": {"run": "20261105T085252Z-public", "task_set": "public", "n_calibration": 231}
+  "fitted_from": {"run": "20261105T100421Z-public", "task_set": "public", "n_calibration": 231}
 }
 ```
 
@@ -373,7 +381,7 @@ Temperature 只能用 raw Distribution 擬合，所以要從一個 `--no-calibra
 ```sh
 uv run local-jev serve --decider d1 --no-calibration   # 終端機 1：raw server
 uv run local-jev bench                                 # 終端機 2：全部 231 個 public Tasks
-uv run local-jev calibrate runs/20261105T085252Z-public
+uv run local-jev calibrate runs/20261105T100421Z-public
 # 重新啟動 server（不加 --no-calibration）就會套用新的 calibration
 ```
 
@@ -399,10 +407,10 @@ uv run local-jev calibrate runs/20261105T085252Z-public
 
 在 calibration 功能出現之前的 server，`runtime` 裡根本沒有 `calibration` 欄位，這種 run 當成 raw。
 
-用真正的 d1（MPS、全部 231 個 public Tasks）跑出來的結果：
+用真正的 d1（MPS、全部 231 個 public Tasks）跑出來的結果，也就是 committed 的 `d1.json`：
 
 ```text
-[local-jev] d1 LiquidAI/d1-2B@652f920, run 20261105T085252Z-public, 231 Tasks
+[local-jev] d1 LiquidAI/d1-2B@652f920, run 20261105T100421Z-public, 231 Tasks
 [local-jev] temperatures: choice 1.0321, noul 2.1097, score 1.2695
 [local-jev] 5-fold cross-validated, raw -> calibrated:
 [local-jev]   all     231 Tasks: Accuracy 76.6% -> 76.6%, Brier 0.285 -> 0.275, ECE 0.072 -> 0.060
@@ -412,6 +420,8 @@ uv run local-jev calibrate runs/20261105T085252Z-public
 ```
 
 d1 的 `noul` 明顯過度自信（T ≈ 2.1），`choice` 本來就差不多（T ≈ 1.03）。`score` 只有 18 個 Tasks，各別 Question type 的 cross-validated 數字雜訊很大，看合計那一行即可。
+
+committed 的 `lfm3.json` 是 choice 3.0394、noul 12.4246、score 3.7641：LFM3 在三種 Question type 都嚴重過度自信，calibration 把 Brier 從 0.626 降到 0.495、ECE 從 0.272 降到 0.038（5-fold CV），但 Accuracy 仍是 62.3%。
 
 ### `calibration-report.json`
 
@@ -441,11 +451,11 @@ uv run local-jev report runs/<d1 的 raw run> runs/<lfm3 的 raw run> runs/<繁�
 
 不是跑完的 `local-jev bench` run（缺 `run.json`、`summary.json` 或 `decisions.jsonl`）、或同一個 run 混了英文與繁體中文的 Tasks，`report` 會直接拒絕並說明原因。
 
-用真正的 d1（MPS、全部 231 個 public Tasks，跑過 `calibrate`）產生的報告，Results 與 verdict 的前幾行：
+兩個 Decider、英文與繁體中文的四個 raw run（MPS，都跑過 `calibrate`）產生的完整報告在 [`docs/comparison-report.md`](docs/comparison-report.md)。其中 d1 的兩行與 verdict 的最後一條：
 
 ```text
-| d1 LiquidAI/d1-2B@652f920 | raw | English | public | 231 | 76.6% | 0.285 | 0.072 | 100.0% | 175 / 2620 ms | 173 / 2617 ms | mps | 20261105T085252Z-public |
-| d1 LiquidAI/d1-2B@652f920 | calibrated, 5-fold CV | English | public | 231 | 76.6% | 0.275 | 0.060 | 100.0% | 175 / 2620 ms | 173 / 2617 ms | mps | 20261105T085252Z-public |
+| d1 LiquidAI/d1-2B@652f920 | raw | English | public | 231 | 76.6% | 0.285 | 0.072 | 100.0% | 129 / 2181 ms | 128 / 2180 ms | mps | 20261105T100421Z-public |
+| d1 LiquidAI/d1-2B@652f920 | calibrated, 5-fold CV | English | public | 231 | 76.6% | 0.275 | 0.060 | 100.0% | 129 / 2181 ms | 128 / 2180 ms | mps | 20261105T100421Z-public |
 | 3b. Server-side p50 ≤ 150 ms on an L4-class GPU | **pending** | no run of d1 LiquidAI/d1-2B@652f920 on cuda on the 231 public Tasks |
 ```
 
@@ -497,7 +507,7 @@ Jev 1.13.0 與 system-one-open（Gemma 4 E2B with LoRA, on an L4），每一行�
 - 標準 3b：run 只記錄 `cuda`，看不出是不是 L4 等級的 GPU，evidence 會註明沒有檢查。目前沒有 GPU 主機，所以它一直是 pending。
 - **Overall**：全部 pass 才是 pass（feasible, worth further investment）；任一條 fail 就是 fail；其餘是 pending，並列出是哪幾條。
 - 繁體中文的 run 另外列在 Results，不影響 verdict。
-- **Default Decider**：在 231 個 public Tasks 上依序比較：答案全部有效、達到標準 2、Accuracy 較高、Brier 較低。還有 Decider 沒跑時標成 provisional。
+- **Default Decider**：在 231 個 public Tasks 上依序比較：答案全部有效、達到標準 2、Accuracy 較高、Brier 較低。還有 Decider 沒跑時標成 provisional。2026-11-05 的四個 run 選出的是 `d1`，`serve` 沒給 `--decider` 時的預設也就是它。
 
 ## 測試
 
