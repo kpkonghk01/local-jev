@@ -3,8 +3,9 @@
 Only the State may differ: ids, Questions, Labels, expected Labels and every other field stay as
 jevbench has them, so a bad edit cannot silently change the answer key. jevbench's Tasks are read
 from the bench runner's cache (`.cache/`, which `tests/test_bench.py` and every `local-jev bench`
-fill); with no cache, it is fetched once, and offline the checks that need it are skipped and say
-so. The checks on the translated States themselves need no jevbench at all.
+fill); with no cache, it is fetched once. When it cannot be had (offline, no cache), the checks
+that need it fail: an integrity check that cannot see its source has not passed. The checks on the
+translated States themselves need no jevbench at all.
 """
 
 import json
@@ -41,7 +42,7 @@ def public() -> dict[str, list[dict]]:
     try:
         jevbench = fetch_jevbench(PROJECT_CACHE)
     except BenchFailed as e:
-        pytest.skip(f"needs jevbench {JEVBENCH_COMMIT[:7]} in {PROJECT_CACHE}: {e}")
+        pytest.fail(f"cannot check the set against jevbench {JEVBENCH_COMMIT[:7]}: {e}")
     by_part = _load(TASK_SETS["public"](jevbench))
     return {zh: by_part[en] for zh, en in PARTS.items()}
 
