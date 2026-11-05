@@ -55,14 +55,14 @@ class FakeLMBackend:
             if candidate not in VOCABULARY:
                 raise NotOneToken(candidate)
         self.forward_passes += 1
-        logprobs = _logprobs(_made(self._probabilities, messages))
+        logprobs = _logprobs(_for_prompt(self._probabilities, messages))
         return NextToken(
             logprobs={candidate: logprobs[candidate] for candidate in candidates},
             prompt_tokens=self._prompt_tokens,
         )
 
     def generate(self, messages: Messages, max_new_tokens: int) -> Generated:
-        writes = _made(self._writes, messages)
+        writes = _for_prompt(self._writes, messages)
         written = (writes.split(" ") if writes else [])[:max_new_tokens]
         self.forward_passes += len(written)
         return Generated(
@@ -70,7 +70,7 @@ class FakeLMBackend:
         )
 
 
-def _made[T](given: T | Callable[[str], T], messages: Messages) -> T:
+def _for_prompt[T](given: T | Callable[[str], T], messages: Messages) -> T:
     """`given`, or what it makes of all the text the prompt shows the model."""
     if not callable(given):
         return given

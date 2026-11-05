@@ -84,7 +84,7 @@ class Decision:
 
 
 @dataclass(frozen=True)
-class Pinned:
+class PinnedModel:
     """A Decider (as `serve --decider` names it) with the model it runs at a pinned revision: what
     a calibration is fitted for, and what a bench run was answered by."""
 
@@ -93,7 +93,7 @@ class Pinned:
     revision: str
 
     @classmethod
-    def of(cls, record: Mapping[str, Any]) -> Pinned:
+    def of(cls, record: Mapping[str, Any]) -> PinnedModel:
         """The one a record names in its `decider`, `model` and `revision` fields."""
         return cls(record["decider"], record["model"], record["revision"])
 
@@ -111,8 +111,8 @@ class Runtime:
     device: str
 
     @property
-    def pinned(self) -> Pinned:
-        return Pinned(self.decider, self.model, self.revision)
+    def pinned_model(self) -> PinnedModel:
+        return PinnedModel(self.decider, self.model, self.revision)
 
 
 class Decider(Protocol):
