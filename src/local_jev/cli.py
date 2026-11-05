@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from local_jev.bench import TASK_SETS, BenchFailed, bench, headline
+from local_jev.calibration import CALIBRATIONS_DIR, REPORT_FILE, CalibrationRefused, calibrate
 from local_jev.decider import Decider
 from local_jev.device import DEVICES, DTYPES
 
@@ -95,6 +96,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="lfm3 only: options for the chat template, merged over "
         f'{{"enable_thinking": false}} (env {CHAT_TEMPLATE_OPTIONS_ENV})',
     )
+    serve.add_argument(
+        "--calibrations-dir",
+        type=Path,
+        default=CALIBRATIONS_DIR,
+        help="where the Decider's calibration <decider>.json is read from; "
+        "default: the committed calibrations",
+    )
+    serve.add_argument(
+        "--no-calibration",
+        action="store_true",
+        help="serve raw Distributions, as a bench run for `calibrate` needs",
+    )
 
     bench = commands.add_parser("bench", help="run jevbench against a running server")
     bench.add_argument("--endpoint", default="http://127.0.0.1:8000", help="the server's base URL")
@@ -102,6 +115,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     bench.add_argument("--limit", type=int, help="run only N of the Task set's Tasks")
     bench.add_argument("--runs-dir", type=Path, default=Path("runs"))
     bench.add_argument("--cache-dir", type=Path, default=Path(".cache"))
+
+    fit = commands.add_parser(
+        "calibrate", help="fit the temperatures of the Decider that served a bench run"
+    )
+    fit.add_argument("run", type=Path, help="a finished `local-jev bench` run directory")
+    fit.add_argument(
+        "--calibrations-dir",
+        type=Path,
+        default=CALIBRATIONS_DIR,
+        help="where to write <decider>.json; default: the committed calibrations",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "serve":
@@ -112,6 +136,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         _serve(args)
     elif args.command == "bench":
         _bench(args)
+    elif args.command == "calibrate":
+        _calibrate(args)
 
 
 def _bench(args: argparse.Namespace) -> None:
@@ -130,6 +156,42 @@ def _bench(args: argparse.Namespace) -> None:
     print(f"[local-jev] {headline(run)}")
 
 
+def _calibrate(args: argparse.Namespace) -> None:
+    try:
+        report = calibrate(args.run, args.calibrations_dir)
+    except CalibrationRefused as e:
+        raise SystemExit(f"local-jev calibrate: {e}") from e
+    cv = report["cross_validation"]
+    raw, calibrated = cv["raw"], cv["calibrated"]
+    print(
+        f"[local-jev] {report['decider']} {report['model']}@{report['revision'][:7]}, "
+        f"run {report['run']}, {raw['n']} Tasks"
+    )
+    temperatures = ", ".join(f"{t} {v:g}" for t, v in report["temperatures"].items())
+    print(f"[local-jev] temperatures: {temperatures}")
+    print(f"[local-jev] {cv['folds']}-fold cross-validated, raw -> calibrated:")
+    rows = [("all", raw, calibrated)] + [
+        (t, scores["raw"], scores["calibrated"]) for t, scores in cv["by_question_type"].items()
+    ]
+    for name, before, after in rows:
+        print(
+            f"[local-jev]   {name:<6} {before['n']:>4} Tasks: "
+            f"Accuracy {_percent(before['accuracy'])} -> {_percent(after['accuracy'])}, "
+            f"Brier {_number(before['brier'])} -> {_number(after['brier'])}, "
+            f"ECE {_number(before['ece'])} -> {_number(after['ece'])}"
+        )
+    print(f"[local-jev] calibration: {report['calibration_file']}")
+    print(f"[local-jev] report: {args.run / REPORT_FILE}")
+
+
+def _percent(x: float | None) -> str:
+    return "n/a" if x is None else f"{100 * x:.1f}%"
+
+
+def _number(x: float | None) -> str:
+    return "n/a" if x is None else f"{x:.3f}"
+
+
 def _serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -138,5 +200,6 @@ def _serve(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     load = DECIDERS[args.decider]
     token = os.environ.get(TOKEN_ENV) or None
-    app = create_app(lambda: load(args), token=token)
+    calibrations = None if args.no_calibration else args.calibrations_dir
+    app = create_app(lambda: load(args), token=token, calibrations_dir=calibrations)
     uvicorn.run(app, host=args.host, port=args.port)

@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi.testclient import TestClient
@@ -17,44 +18,62 @@ from local_jev.wire import create_app
 
 
 @contextmanager
-def starting(load_decider: Callable[[], Decider], token: str | None = None) -> Iterator[TestClient]:
-    """A server that has just started; its Decider may still be loading."""
-    with TestClient(create_app(load_decider, token=token)) as client:
+def starting(
+    load_decider: Callable[[], Decider],
+    token: str | None = None,
+    calibrations: Path | None = None,
+) -> Iterator[TestClient]:
+    """A server that has just started; its Decider may still be loading.
+
+    With `calibrations`, a directory, it calibrates with the Decider's calibration there, if any.
+    """
+    app = create_app(load_decider, token=token, calibrations_dir=calibrations)
+    with TestClient(app) as client:
         yield client
 
 
 @contextmanager
 def serving(
-    load_decider: Callable[[], Decider], ready_within: float = 5.0, token: str | None = None
+    load_decider: Callable[[], Decider],
+    ready_within: float = 5.0,
+    token: str | None = None,
+    calibrations: Path | None = None,
 ) -> Iterator[TestClient]:
     """A running server whose Decider comes from `load_decider`, once its health reports ready.
 
     With a `token`, the server requires it as a bearer token.
     """
-    with starting(load_decider, token=token) as client:
+    with starting(load_decider, token=token, calibrations=calibrations) as client:
         wait_until_ready(client, ready_within)
         yield client
 
 
-def serving_d1(model, device: str = "cpu", token: str | None = None) -> Iterator[TestClient]:
+def serving_d1(
+    model, device: str = "cpu", token: str | None = None, calibrations: Path | None = None
+) -> Iterator[TestClient]:
     """A running server with the d1 Decider over `model` (a fake or the real d1) on `device`."""
-    return serving(lambda: D1Decider(model, device=device), token=token)
+    return serving(lambda: D1Decider(model, device=device), token=token, calibrations=calibrations)
 
 
-def serving_option_id(backend, device: str = "cpu") -> Iterator[TestClient]:
+def serving_option_id(
+    backend, device: str = "cpu", calibrations: Path | None = None
+) -> Iterator[TestClient]:
     """A running server with the LFM3 Option-ID Decider over `backend` (a fake or the real one)."""
-    return serving(lambda: OptionIDDecider(backend, device=device))
+    return serving(lambda: OptionIDDecider(backend, device=device), calibrations=calibrations)
 
 
 @contextmanager
-def listening(load_decider: Callable[[], Decider], token: str | None = None) -> Iterator[str]:
+def listening(
+    load_decider: Callable[[], Decider],
+    token: str | None = None,
+    calibrations: Path | None = None,
+) -> Iterator[str]:
     """A server listening on a free localhost port, as jevbench reaches it; yields its base URL.
 
     The server starts at once; its Decider may still be loading.
     """
-    config = uvicorn.Config(
-        create_app(load_decider, token=token), host="127.0.0.1", port=0, log_level="warning"
-    )
+    app = create_app(load_decider, token=token, calibrations_dir=calibrations)
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, name="uvicorn", daemon=True)
     thread.start()

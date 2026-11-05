@@ -30,6 +30,8 @@ uv run local-jev serve --decider lfm3    # 或 --decider d1；預設聽 127.0.0.
 | `--model` | Decider 自己的 model | Hugging Face model id；也可用環境變數 `LOCAL_JEV_MODEL` |
 | `--revision` | Decider 自己固定的 revision | 給了 `--model` 就必須一起給；也可用 `LOCAL_JEV_REVISION` |
 | `--chat-template-options` | `{"enable_thinking": false}` | 只適用 `lfm3`：傳給 chat template 的選項（JSON 物件），會合併在預設值之上；也可用 `LOCAL_JEV_CHAT_TEMPLATE_OPTIONS` |
+| `--calibrations-dir` | committed 的 `src/local_jev/calibrations/` | 從這裡讀這個 Decider 的 calibration（`<decider>.json`），見下方「Calibration」 |
+| `--no-calibration` | 關 | 不套用 calibration，送出 raw Distribution；要給 `local-jev calibrate` 擬合的 benchmark run 必須這樣跑 |
 
 在 Mac 上 `auto` 會選 MPS（Metal）。容器裡沒有 MPS，只能用 CPU。
 
@@ -98,12 +100,13 @@ curl -s http://127.0.0.1:8000/v1/systemone \
  "timing":  {"total_ms": 98.512, "decider_ms": 97.904},
  "runtime": {"decider": "d1", "model": "LiquidAI/d1-2B",
              "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1", "device": "mps",
+             "calibration": null,
              "total_ms": 98.512, "decider_ms": 97.904}}
 ```
 
 - `usage`：所有 Question 加總的 token 數。沒有要求 Reason 時，兩個 Decider 都只讀 prompt 不生成，所以 `output_tokens` 是 0；`lfm3` 寫 Reason 時，`output_tokens` 是 Reason 的 token 數，`input_tokens` 也加上寫 Reason 時另外讀的 prompt。
 - `timing`：server 自己量的時間（毫秒）。`total_ms` 從解析完請求到產生回應為止（包含等前一個請求的時間），`decider_ms` 是其中花在 Decider 上的部分。拿來跟 client 端的 wall-clock 對照，就能分出網路與 client 的額外開銷。
-- `runtime`：同樣的時間，再加上 Decider 名稱、model id、revision 與 device（`cuda`、`mps` 或 `cpu`）。jevbench 會把回應頂層的 `runtime` 原樣抄進 `results.jsonl` 的每一筆紀錄，所以每筆結果都帶著它是在什麼硬體上跑的。
+- `runtime`：同樣的時間，再加上 Decider 名稱、model id、revision、device（`cuda`、`mps` 或 `cpu`），以及 `calibration`：server 套用的 calibration（`{"temperatures": {...}, "fitted_from": "<run>"}`），送出 raw Distribution 時是 `null`（見下方「Calibration」）。jevbench 會把回應頂層的 `runtime` 原樣抄進 `results.jsonl` 的每一筆紀錄，所以每筆結果都帶著它是在什麼硬體上、有沒有 calibration 跑的。
 
 請求一次處理一個：同時送來的請求會排隊，不會交錯使用模型。
 
@@ -243,8 +246,10 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 
 ```text
 [local-jev] run: runs/20261105T090000Z-public
-[local-jev] d1 LiquidAI/d1-2B@652f920 on mps, Task set public, 231 Tasks: Valid 100.0%, Accuracy …, Brier …, ECE …, client p50 … s, p95 … s
+[local-jev] d1 LiquidAI/d1-2B@652f920 on mps, raw, Task set public, 231 Tasks: Valid 100.0%, Accuracy …, Brier …, ECE …, client p50 … s, p95 … s
 ```
+
+`raw` 表示 server 送出的是 raw Distribution；server 有套用 calibration 時會寫 `calibrated`。
 
 ### Run 目錄裡有什麼
 
@@ -258,7 +263,8 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 | `ledger.jsonl`、`manifest.json` | jevbench 的成本 ledger 與 run 設定（含 `dataset_hash`） |
 | `summary.json` | jevbench `summarize` 的輸出：`accuracy`、`brier_mean`、`ece`、`schema_validity`（Valid answers）、`latency.p50_s`/`p95_s`（client 端）等 |
 | `decisions.jsonl` | 每個 Task 一行：server 給的 Distribution 和預期的 Label 放在一起，給 calibration 用（格式見下） |
-| `run.json` | 這次 run 的紀錄：jevbench 的 URL 與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision 與硬體（`cuda`、`mps` 或 `cpu`） |
+| `run.json` | 這次 run 的紀錄：jevbench 的 URL 與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision、硬體（`cuda`、`mps` 或 `cpu`）與 `calibration`（raw 時是 `null`） |
+| `calibration-report.json` | 只有跑過 `local-jev calibrate` 才有：cross-validated 的 calibration 報告（格式見「Calibration」） |
 
 `run.json` 只在整個 run 成功跑完才會寫入。jevbench 中途停止（遇到 401、403、429，或連續三次失敗）時，`local-jev bench` 以非零 exit code 結束並說明跑到第幾個 Task；目錄裡留著 jevbench 已寫的結果與 raw evidence 供除錯，但沒有 `summary.json`、`decisions.jsonl`、`run.json`。
 
@@ -275,7 +281,7 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 | `valid` | jevbench 是否接受這個 Distribution（無效的答案算答錯，calibration 應略過） |
 | `predicted`、`correct` | jevbench 的 argmax Label，以及它是否等於 `expected` |
 | `latency_s` | jevbench 量的 client 端 wall-clock（秒） |
-| `runtime` | Server 這次回應的 `runtime`：Decider、model、revision、device，以及 server 端的 `total_ms`、`decider_ms` |
+| `runtime` | Server 這次回應的 `runtime`：Decider、model、revision、device、`calibration`，以及 server 端的 `total_ms`、`decider_ms` |
 
 ### jevbench 的眉角（`bench` 已處理）
 
@@ -284,6 +290,96 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 - jevbench 的結果與 raw evidence 只能寫到新檔，而且必須在它的 checkout 之外：每次 run 都用新目錄、絕對路徑。
 - jevbench 是用目前的 Python（`python -m jevbench.cli`）在它的 checkout 裡執行，不是 `uv run`（checkout 裡有它自己的 `pyproject.toml`）。它只用標準函式庫，不是 local-jev 的相依套件。
 - jevbench 不會送 `explain`，所以 benchmark 一律不產生 Reason。
+
+## Calibration
+
+每個 Decider 對每種 Question type（`noul`、`choice`、`score`）各有一個 temperature T。Server 把 Decider 的 raw Distribution 的 log-probabilities 除以 T 再正規化，也就是 p_k 變成 p_k^(1/T) / Σ_j p_j^(1/T)：
+
+- T > 1 讓過度自信的 Distribution 變平，T < 1 讓信心不足的變尖，T = 1 不變。
+- Temperature scaling 不會改變各 Label 的排序，所以 argmax 與 Accuracy 不變，只有 Brier、ECE 會動。
+- 沒有 calibration 時，Distribution 原樣送出。
+- d1 自己內部已經先除過一次 T ≈ 1.337（它 revision 裡的 `calibration.json`）；我們的 T 疊在 d1 送出的機率之上。
+
+### Calibration 檔案
+
+每個 Decider 的 calibration 是一個 committed 的檔案 `src/local_jev/calibrations/<decider>.json`（`d1.json`、`lfm3.json`）。它在 package 裡面，會跟著安裝，所以不管從哪個目錄啟動 server、或在容器裡跑，都讀得到。
+
+```json
+{
+  "decider": "d1",
+  "model": "LiquidAI/d1-2B",
+  "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1",
+  "temperatures": {"choice": 1.0321, "noul": 2.1097, "score": 1.2695},
+  "fitted_from": {"run": "20261105T085252Z-public", "task_set": "public", "n_calibration": 231}
+}
+```
+
+- Server 啟動時只讀目前這個 Decider 的檔案，所以兩個 Decider 不會共用 calibration。
+- 檔案裡的 `decider`、`model`、`revision` 必須和 server 實際載入的完全一致才會套用。例如用 `--model`/`--revision` 換了 model 時，就不套用、log 一個警告，照 raw 送出。
+- `temperatures` 裡沒有的 Question type 不做 calibration（T = 1）。
+- 檔案壞掉時（不是 JSON、T 不是正數、未知的 Question type），health 會回報 `failed` 並指出是哪個檔案，不會默默照 raw 送出。
+- 每個回應的 `runtime.calibration` 都會寫出套用了哪個 calibration（raw 時是 `null`），所以 `run.json` 與 `local-jev bench` 印出的那一行也看得出這次 run 是 raw 還是 calibrated。
+- `serve --no-calibration` 一律送 raw；`serve --calibrations-dir DIR` 改從別的目錄讀 calibration。
+
+### 擬合 calibration（`local-jev calibrate`）
+
+Temperature 只能用 raw Distribution 擬合，所以要從一個 `--no-calibration` 的 server 跑出來的 benchmark run 開始：
+
+```sh
+uv run local-jev serve --decider d1 --no-calibration   # 終端機 1：raw server
+uv run local-jev bench                                 # 終端機 2：全部 231 個 public Tasks
+uv run local-jev calibrate runs/20261105T085252Z-public
+# 重新啟動 server（不加 --no-calibration）就會套用新的 calibration
+```
+
+`calibrate` 讀 run 裡的 `decisions.jsonl`，然後：
+
+1. 對每種 Question type，在 T ∈ [0.05, 20] 裡找出讓預期 Label 的 negative log-likelihood 最小的 T（NLL 對 1/T 是 convex，用 golden-section search）。只用 jevbench 接受的答案；機率剛好是 0 的，算 likelihood 時當成 1e-12。
+2. 做 5-fold cross-validation（依 Question type 分層，seed 0）：每個 Task 都用「另外 4 個 fold 擬合出的 T」來 calibrate，再對這些 held-out 的 Distribution 算 raw 與 calibrated 的 Brier、ECE。算法和 jevbench 的 `summarize` 完全一樣：
+   - Brier 是 Label set 上的 multi-class sum Σ_k (p_k − y_k)²（`noul` 等於 2·(p_yes − y)²）；
+   - ECE 是 top-label confidence、10 個等寬的 bin；
+   - 兩者都把所有 Question type 合在一起算，另外也各別列出每種 Question type（這是我們自己加的）；
+   - 無效的答案在 Accuracy 裡算錯，但不算進 Brier、ECE。
+
+   所以 raw 的數字會等於 jevbench 對同一個 run 的 `summary.json`。
+3. 把用全部 Tasks 擬合出的 T 寫進 `<calibrations-dir>/<decider>.json`（預設就是 committed 的 `src/local_jev/calibrations/`，會覆寫舊的），並把報告寫成 run 目錄裡的 `calibration-report.json`。
+
+報告要引用的是 cross-validated 的數字，不是用同一批 Tasks 擬合再評估的 in-sample 數字（那會偏樂觀）。
+
+`calibrate` 拒絕以下的 run，不寫任何檔案：
+
+- server 有套用 calibration 的 run（`runtime.calibration` 不是 `null`）：請用 `--no-calibration` 重跑 benchmark；
+- 由不只一個 Decider、model 或 revision 回答的 run；
+- 沒有 `decisions.jsonl` 的目錄（不是跑完的 `local-jev bench` run）。
+
+在 calibration 功能出現之前的 server，`runtime` 裡根本沒有 `calibration` 欄位，這種 run 當成 raw。
+
+用真正的 d1（MPS、全部 231 個 public Tasks）跑出來的結果：
+
+```text
+[local-jev] d1 LiquidAI/d1-2B@652f920, run 20261105T085252Z-public, 231 Tasks
+[local-jev] temperatures: choice 1.0321, noul 2.1097, score 1.2695
+[local-jev] 5-fold cross-validated, raw -> calibrated:
+[local-jev]   all     231 Tasks: Accuracy 76.6% -> 76.6%, Brier 0.285 -> 0.275, ECE 0.072 -> 0.060
+[local-jev]   choice  139 Tasks: Accuracy 78.4% -> 78.4%, Brier 0.253 -> 0.258, ECE 0.056 -> 0.077
+[local-jev]   noul     74 Tasks: Accuracy 73.0% -> 73.0%, Brier 0.357 -> 0.313, ECE 0.160 -> 0.070
+[local-jev]   score    18 Tasks: Accuracy 77.8% -> 77.8%, Brier 0.239 -> 0.247, ECE 0.131 -> 0.109
+```
+
+d1 的 `noul` 明顯過度自信（T ≈ 2.1），`choice` 本來就差不多（T ≈ 1.03）。`score` 只有 18 個 Tasks，各別 Question type 的 cross-validated 數字雜訊很大，看合計那一行即可。
+
+### `calibration-report.json`
+
+| 欄位 | 內容 |
+| --- | --- |
+| `run`、`task_set` | Run 目錄名稱與 Task set |
+| `decider`、`model`、`revision`、`device` | 回答這個 run 的 server（來自每個答案的 `runtime`） |
+| `temperatures` | 用全部 Tasks 擬合、寫進 calibration 檔案的 T（每種 Question type 一個） |
+| `calibration_file` | 寫入的 calibration 檔案路徑 |
+| `cross_validation.folds`、`seed` | `5`、`0` |
+| `cross_validation.fold_temperatures` | 每個 fold 用其他 fold 擬合出的 T（看 T 穩不穩定） |
+| `cross_validation.raw`、`calibrated` | 合計：`n`（有預期 Label 的 Tasks）、`n_calibration`（其中有有效 Distribution 的）、`accuracy`、`brier`、`ece` |
+| `cross_validation.by_question_type.<type>.raw`、`.calibrated` | 同上，只算這種 Question type |
 
 ## 測試
 

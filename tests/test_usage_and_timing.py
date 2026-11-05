@@ -59,6 +59,7 @@ def test_runtime_carries_the_timing_and_what_the_decider_runs_on():
         "model": "LiquidAI/d1-2B",
         "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1",
         "device": "mps",
+        "calibration": None,
         "total_ms": body["timing"]["total_ms"],
         "decider_ms": body["timing"]["decider_ms"],
     }
