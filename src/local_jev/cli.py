@@ -13,6 +13,7 @@ from local_jev.bench import TASK_SETS, BenchFailed, bench, headline
 from local_jev.calibration import CALIBRATIONS_DIR, REPORT_FILE, CalibrationRefused, calibrate
 from local_jev.decider import Decider
 from local_jev.device import DEVICES, DTYPES
+from local_jev.report import ReportRefused, compare, write_new_report
 
 LoadDecider = Callable[[argparse.Namespace], Decider]
 """Loads a Decider as the `serve` arguments say (device, dtype, model and so on)."""
@@ -127,6 +128,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="where to write <decider>.json; default: the committed calibrations",
     )
 
+    report = commands.add_parser(
+        "report", help="merge finished bench runs into one Markdown comparison report"
+    )
+    report.add_argument(
+        "runs", type=Path, nargs="+", help="finished `local-jev bench` run directories"
+    )
+    report.add_argument(
+        "--output",
+        type=Path,
+        help="the Markdown file to write; default: a new report-<UTC time>.md in --runs-dir",
+    )
+    report.add_argument("--runs-dir", type=Path, default=Path("runs"))
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         if args.model and not args.revision:
@@ -138,6 +152,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         _bench(args)
     elif args.command == "calibrate":
         _calibrate(args)
+    elif args.command == "report":
+        _report(args)
 
 
 def _bench(args: argparse.Namespace) -> None:
@@ -182,6 +198,22 @@ def _calibrate(args: argparse.Namespace) -> None:
         )
     print(f"[local-jev] calibration: {report['calibration_file']}")
     print(f"[local-jev] report: {args.run / REPORT_FILE}")
+
+
+def _report(args: argparse.Namespace) -> None:
+    try:
+        comparison = compare(args.runs, deciders=sorted(DECIDERS))
+    except ReportRefused as e:
+        raise SystemExit(f"local-jev report: {e}") from e
+    if args.output is None:
+        written = write_new_report(comparison.markdown, args.runs_dir)
+    else:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(comparison.markdown, encoding="utf-8")
+        written = args.output
+    print(f"[local-jev] report: {written}")
+    print(f"[local-jev] {comparison.overall}")
+    print(f"[local-jev] {comparison.default_decider}")
 
 
 def _percent(x: float | None) -> str:
