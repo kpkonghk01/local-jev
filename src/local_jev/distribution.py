@@ -20,4 +20,6 @@ def over_labels(raw: Mapping[Label, float], labels: Sequence[Label]) -> dict[Lab
     if bad:
         raise NotADistribution(f"these values are not probabilities: {bad}")
     total = sum(raw[label] for label in labels)
+    if total <= 0:
+        raise NotADistribution("every probability is 0")
     return {label: raw[label] / total for label in labels}

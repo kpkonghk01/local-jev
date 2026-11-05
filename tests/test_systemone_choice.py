@@ -50,6 +50,7 @@ def test_choice_answer_is_d1s_most_likely_label_and_its_distribution():
         pytest.param({**EASY_INTENT_PROBABILITIES, "refund": 0.0}, id="extra-label"),
         pytest.param({**EASY_INTENT_PROBABILITIES, "cancel_order": float("nan")}, id="nan"),
         pytest.param({**EASY_INTENT_PROBABILITIES, "cancel_order": -0.0539}, id="negative"),
+        pytest.param(dict.fromkeys(EASY_INTENT_PROBABILITIES, 0.0), id="all-zero"),
     ],
 )
 def test_a_d1_answer_that_is_not_a_distribution_over_the_labels_is_a_server_error(
