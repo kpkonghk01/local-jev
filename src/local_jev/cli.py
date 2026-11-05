@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from collections.abc import Callable, Sequence
 
 from local_jev.decider import Decider
@@ -20,6 +21,9 @@ def _load_d1(device: str, dtype: str) -> Decider:
 
 
 DECIDERS: dict[str, LoadDecider] = {"d1": _load_d1}
+
+TOKEN_ENV = "LOCAL_JEV_TOKEN"
+"""When set and non-empty, `serve` requires this bearer token on every request but /health."""
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -45,5 +49,6 @@ def _serve(args: argparse.Namespace) -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     load = DECIDERS[args.decider]
-    app = create_app(lambda: load(args.device, args.dtype))
+    token = os.environ.get(TOKEN_ENV) or None
+    app = create_app(lambda: load(args.device, args.dtype), token=token)
     uvicorn.run(app, host=args.host, port=args.port)
