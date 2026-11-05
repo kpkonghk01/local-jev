@@ -41,6 +41,7 @@ from local_jev.decider import (
     Usage,
 )
 from local_jev.device import pick_device
+from local_jev.distribution import argmax, softmax
 from local_jev.lm_backend import LMBackend, Messages
 
 LFM3_MODEL_ID = "LiquidAI/LFM3-1.7B"
@@ -86,12 +87,12 @@ class OptionIDDecider:
             label: _logsumexp([scored.logprobs[form] for form in label_forms])
             for label, label_forms in forms.items()
         }
-        distribution = _softmax(pooled)
+        distribution = softmax(pooled)
         usage = Usage(input_tokens=scored.prompt_tokens)
         if not explain:
             return Decision(distribution, usage)
         # The Distribution is fixed by now: the Reason explains the Decision, it cannot change it.
-        most_likely = max(distribution, key=distribution.__getitem__)
+        most_likely = argmax(distribution)
         written = self._backend.generate(
             _reason_messages(state, question, forms, most_likely), REASON_MAX_TOKENS
         )
@@ -231,10 +232,3 @@ def _logsumexp(logprobs: Sequence[float]) -> float:
     if top == -math.inf:
         return top
     return top + math.log(sum(math.exp(lp - top) for lp in logprobs))
-
-
-def _softmax(logprobs: Mapping[Label, float]) -> dict[Label, float]:
-    top = max(logprobs.values())
-    weights = {label: math.exp(lp - top) for label, lp in logprobs.items()}
-    total = sum(weights.values())
-    return {label: w / total for label, w in weights.items()}

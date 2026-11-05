@@ -27,7 +27,7 @@ from local_jev.decider import (
     ScoreQuestion,
     Usage,
 )
-from local_jev.distribution import NotADistribution, over_labels
+from local_jev.distribution import NotADistribution, argmax, over_labels
 
 log = logging.getLogger(__name__)
 
@@ -272,7 +272,7 @@ def _ms(seconds: float) -> float:
 
 def _answer(question: Question, distribution: Mapping[Label, float]) -> dict:
     """The wire answer to `question` whose Distribution is `distribution`."""
-    most_likely = max(distribution, key=distribution.__getitem__)
+    most_likely = argmax(distribution)
     match question:
         case NoulQuestion():
             return {"type": "noul", "noul": distribution["yes"]}

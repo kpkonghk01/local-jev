@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from local_jev.decider import Label, Runtime
+from local_jev.distribution import argmax, normalised, softmax
 
 log = logging.getLogger(__name__)
 
@@ -104,13 +105,7 @@ def _tempered(distribution: Mapping[Label, float], temperature: float) -> dict[L
     if temperature == 1.0:
         return dict(distribution)
     logs = {label: math.log(p) if p > 0 else -math.inf for label, p in distribution.items()}
-    top = max(logs.values())
-    weights = {
-        label: math.exp((log - top) / temperature) if log > -math.inf else 0.0
-        for label, log in logs.items()
-    }
-    total = sum(weights.values())
-    return {label: w / total for label, w in weights.items()}
+    return softmax({label: log / temperature for label, log in logs.items()})
 
 
 @dataclass(frozen=True)
@@ -216,8 +211,7 @@ def _task_decision(line: dict) -> TaskDecision:
     jevbench rescales an answer it accepts."""
     distribution = line.get("distribution") if line.get("valid") else None
     if distribution is not None:
-        total = sum(distribution.values())
-        distribution = {label: p / total for label, p in distribution.items()}
+        distribution = normalised(distribution)
     return TaskDecision(line["question_type"], str(line["expected"]), distribution)
 
 
@@ -343,7 +337,7 @@ def _metrics(
     for d, p in zip(decisions, distributions, strict=True):
         if p is None:
             continue
-        hit = _argmax(p) == d.expected
+        hit = argmax(p) == d.expected
         correct += hit
         briers.append(sum((q - (label == d.expected)) ** 2 for label, q in p.items()))
         pairs.append((max(p.values()), hit))
@@ -354,15 +348,6 @@ def _metrics(
         "brier": sum(briers) / len(briers) if briers else None,
         "ece": _ece(pairs) if pairs else None,
     }
-
-
-def _argmax(distribution: Mapping[Label, float]) -> Label:
-    """jevbench's argmax: a tie goes to the alphabetically first Label."""
-    best, best_p = None, -1.0
-    for label in sorted(distribution):
-        if distribution[label] > best_p:
-            best, best_p = label, distribution[label]
-    return best
 
 
 def _ece(pairs: Sequence[tuple[float, bool]], bins: int = 10) -> float:
