@@ -158,7 +158,7 @@ docker compose --profile d1 down           # 停掉並移除容器；模型留�
 
 - `--profile lfm3` 啟動 LFM3，聽 port 8001：`uv run local-jev bench --endpoint http://127.0.0.1:8001`。
 - **一次只跑一個 profile。** 兩個 Decider 在 CPU 上用 fp32，加起來約 15 GB，剛好是 OrbStack 給容器的上限（15.7 GiB）。
-- 容器裡沒有 MPS（macOS 上沒有任何 container runtime 能讓 Linux 容器用 Metal），只能用 CPU，每個 Decision 要一秒多。拿來開發與驗證可以，延遲數字請用原生的 `uv run`（MPS）或 GPU host 量。
+- 容器裡沒有 MPS（macOS 上沒有任何 container runtime 能讓 Linux 容器用 Metal），只能用 CPU：短的 State 每個 Decision 約 1 秒，很長的 State 可能要十幾秒。拿來開發與驗證可以，延遲數字請用原生的 `uv run`（MPS）或 GPU host 量。
 - **Model 不在 image 裡。** 第一次啟動時 server 會把 model 下載到 named volume `hf-cache`（容器裡的 `HF_HOME=/data/hf`），固定在 Decider 的 pinned revision，之後的啟動直接讀它；兩個 service 共用這個 volume。整個 Hugging Face cache 一起掛載，因為 hub 把各 model 的檔案連到一個共用的 blob store，只掛一個 model 的目錄會留下斷掉的 symlink。
 - 第一次下載 3–4 GB 需要一段時間，health check 給它 30 分鐘的 `start_period`；`docker compose logs -f d1` 可以看進度。`docker compose down -v` 會連 volume 一起刪掉，下次啟動就要重新下載。
 
@@ -187,7 +187,7 @@ docker run --rm -p 127.0.0.1:8000:8000 -v local-jev_hf-cache:/data/hf local-jev:
 - 以 non-root user `app`（UID 10001）執行；
 - 保留 gcc：LFM3 的 conv kernel 在 CUDA 上用 Triton，Triton 在 run time 編譯 kernel。
 
-torch 依平台來自不同的 index（都鎖在 `uv.lock` 裡，版本都是 2.11.0）：linux/amd64 用 PyTorch 的 CUDA 12.8 index，linux/arm64 用 PyTorch 的 CPU index（PyPI 的 Linux wheel 在 arm64 上也會帶進 CUDA 13 的 library），Mac 用 PyPI（支援 MPS 的版本）。linux/arm64 的 runtime image 約 1.4 GB。
+torch 依平台來自不同的 index（都鎖在 `uv.lock` 裡，版本都是 2.11.0）：linux/amd64 用 PyTorch 的 CUDA 12.8 index，linux/arm64 用 PyTorch 的 CPU index（PyPI 的 Linux wheel 在 arm64 上也會帶進 CUDA 13 的 library），Mac 用 PyPI（支援 MPS 的版本）。runtime image 在 linux/arm64 約 1.4 GB，在 linux/amd64 約 7.7 GB（CUDA library 佔了大部分）。
 
 另一個 target `dev` 是 dev container 用的：多了 dev 相依套件與 git，source 在執行時掛載到 `/app`。
 
@@ -199,7 +199,7 @@ docker compose -f compose.yaml -f compose.gpu.yaml --profile d1 up -d --wait
 
 - **`compose.gpu.yaml` 還沒在真的 GPU host 上跑過。** 它只替每個 service 加上 NVIDIA GPU 的 device reservation（`driver: nvidia`、`count: all`、`capabilities: [gpu]`），其他設定都跟 CPU 一樣；`--device auto` 會自動選 CUDA 與 bfloat16。
 - Host 需要 NVIDIA driver（570.26 以上，CUDA 12.8 的要求）與 NVIDIA Container Toolkit。Image 不用 `nvidia/cuda` 當 base：torch 的 wheel 自帶 CUDA library。
-- 在 GPU host 上 compose 會直接建 linux/amd64 的 image，裡面是 CUDA 12.8 版的 torch。
+- 在 GPU host 上 compose 會直接建 linux/amd64 的 image，裡面是 CUDA 12.8 版的 torch。在 Mac 上也可以用模擬的方式建同一個 image（`docker build --platform linux/amd64 --target runtime .`，OrbStack 上約 13 分鐘），但不能在 Mac 上跑 CUDA。
 - GPU 記憶體夠的話，兩個 Decider 可以同時跑（`--profile d1 --profile lfm3`，port 各自是 8000 與 8001）。
 
 ### 用 bearer token 保護（選用）
