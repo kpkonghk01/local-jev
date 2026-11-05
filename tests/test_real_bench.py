@@ -1,4 +1,4 @@
-"""jevbench's own `typesafe` adapter against a real d1 server (run with `uv run pytest -m real_model`).
+"""jevbench's `typesafe` adapter against a real d1 server (run with `uv run pytest -m real_model`).
 
 Downloads d1 at its pinned revision on first use, like `test_real_d1.py`, and fetches jevbench into
 the project cache like `test_bench.py`.

@@ -98,7 +98,6 @@ def bench(
     task_set: str = "public",
     *,
     limit: int | None = None,
-    model: str = "local-jev",
     runs_dir: Path = Path("runs"),
     cache_dir: Path = Path(".cache"),
     token: str | None = None,
@@ -121,9 +120,14 @@ def bench(
     tasks_file = run / "tasks.jsonl"
     tasks_file.write_text("".join(t.line for t in tasks), encoding="utf-8")
 
-    # The `typesafe` adapter sends nothing while its key is empty, and a server without a token
-    # ignores whichever one it is sent.
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", _KEY_ENV: token or "local-dummy"}
+    env = {
+        **os.environ,
+        "PYTHONDONTWRITEBYTECODE": "1",  # no __pycache__ in the cached checkout
+        "NO_PROXY": ",".join(filter(None, [os.environ.get("NO_PROXY"), "127.0.0.1,localhost"])),
+        # The `typesafe` adapter sends nothing while its key is empty, and a server without a
+        # token ignores whichever one it is sent.
+        _KEY_ENV: token or "local-dummy",
+    }
     ran = _jevbench(
         jevbench,
         env,
@@ -131,7 +135,8 @@ def bench(
         "--tasks", tasks_file,
         "--adapter", "typesafe",
         "--endpoint", endpoint,
-        "--model", model,
+        # Only a label: the server echoes it; what it runs is in each answer's `runtime`.
+        "--model", "local-jev",
         "--key-env", _KEY_ENV,
         # Unpriced, jevbench holds $0.02 per Task against its $15 cap and leaves cost null.
         "--price-in-per-m", "0",
@@ -166,7 +171,6 @@ def bench(
     record = {
         "jevbench": {"url": JEVBENCH_URL, "commit": JEVBENCH_COMMIT},
         "endpoint": endpoint,
-        "model": model,
         "task_set": task_set,
         "limit": limit,
         "n_tasks": len(tasks),

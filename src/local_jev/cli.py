@@ -50,7 +50,8 @@ CHAT_MODEL_DECIDERS = ("lfm3",)
 """Deciders over a Chat model, which take chat-template options."""
 
 TOKEN_ENV = "LOCAL_JEV_TOKEN"
-"""When set and non-empty, `serve` requires this bearer token on every request but /health."""
+"""When set and non-empty, `serve` requires this bearer token on every request but /health,
+and `bench` has jevbench send it."""
 MODEL_ENV = "LOCAL_JEV_MODEL"
 REVISION_ENV = "LOCAL_JEV_REVISION"
 CHAT_TEMPLATE_OPTIONS_ENV = "LOCAL_JEV_CHAT_TEMPLATE_OPTIONS"
@@ -99,7 +100,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     bench.add_argument("--endpoint", default="http://127.0.0.1:8000", help="the server's base URL")
     bench.add_argument("--task-set", choices=sorted(TASK_SETS), default="public")
     bench.add_argument("--limit", type=int, help="run only N of the Task set's Tasks")
-    bench.add_argument("--model", default="local-jev", help="the `model` jevbench sends")
     bench.add_argument("--runs-dir", type=Path, default=Path("runs"))
     bench.add_argument("--cache-dir", type=Path, default=Path(".cache"))
 
@@ -120,7 +120,6 @@ def _bench(args: argparse.Namespace) -> None:
             args.endpoint,
             args.task_set,
             limit=args.limit,
-            model=args.model,
             runs_dir=args.runs_dir,
             cache_dir=args.cache_dir,
             token=os.environ.get(TOKEN_ENV) or None,
