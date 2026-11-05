@@ -190,14 +190,28 @@ LFM3-1.7B wrote English when only asked to explain."""
 def _language(state: State) -> str:
     """Traditional Chinese when Han characters carry the State, English otherwise.
 
-    A Chinese word takes about two characters, so a State is Chinese when it has at least twice as
-    many Han characters as Latin words: a Chinese message that keeps a product or carrier name is
-    still Chinese, an English one quoting a Chinese name is still English. Traditional Chinese is
-    the only Chinese local-jev serves, so any Han text gets a Reason in it.
+    Only the State's own text counts, not a JSON State's keys. A Chinese State often keeps names,
+    codes, tables or program code in Latin script, which can outnumber its Chinese words; so it is
+    Chinese when it has at least half as many Han characters as Latin words. An English State
+    quoting a Chinese name has far fewer. (Over the 231 public Tasks and their Traditional-Chinese
+    copy, this tells every State's language apart; the closest Chinese State has 0.73 Han
+    characters per Latin word.) Traditional Chinese is the only Chinese local-jev serves, so any
+    Han text gets a Reason in it.
     """
-    text = _as_text(state)
+    text = "\n".join(_strings(state))
     han = len(_HAN.findall(text))
-    return "zh-TW" if han and han >= 2 * len(_LATIN_WORD.findall(text)) else "en"
+    return "zh-TW" if han and 2 * han >= len(_LATIN_WORD.findall(text)) else "en"
+
+
+def _strings(value: Any) -> list[str]:
+    """Every string value in a JSON value; a text State is one."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        return [s for v in value for s in _strings(v)]
+    return []
 
 
 _HAN = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")

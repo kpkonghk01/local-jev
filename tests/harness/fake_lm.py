@@ -5,8 +5,9 @@ gives for some tokens of the fake's small vocabulary, and the rest of the mass s
 the other tokens. (Fixed probabilities are fixed logits up to a constant.) Like the real backend,
 the fake refuses a candidate that is not one token at the scored position, such as `" 0"`.
 
-Asked to generate, the fake writes the text the test gives it, one token per word, and like the
-real backend stops at the bound it is given.
+Asked to generate, the fake writes the text the test gives it (or, given a function, what that
+function makes of the text it was shown), one token per word, and like the real backend stops at
+the bound it is given.
 
 The fake keeps the messages of every prompt it was asked to score in `asked`.
 """
@@ -15,7 +16,7 @@ from __future__ import annotations
 
 import math
 import string
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from local_jev.lm_backend import Generated, Messages, NextToken, NotOneToken
 
@@ -29,10 +30,13 @@ VOCABULARY = (
 
 class FakeLMBackend:
     def __init__(
-        self, probabilities: Mapping[str, float], prompt_tokens: int = 100, writes: str = ""
+        self,
+        probabilities: Mapping[str, float],
+        prompt_tokens: int = 100,
+        writes: str | Callable[[str], str] = "",
     ):
         """`probabilities` for some tokens in `VOCABULARY`, summing to at most 1; `writes` is the
-        text the model writes whenever it generates."""
+        text the model writes whenever it generates, or makes it from the text it was shown."""
         unknown = set(probabilities) - set(VOCABULARY)
         if unknown:
             raise ValueError(f"not in the fake vocabulary: {sorted(unknown)}")
@@ -41,7 +45,7 @@ class FakeLMBackend:
         everything = {token: probabilities.get(token, leftover) for token in VOCABULARY}
         self._logprobs = {t: math.log(p) if p > 0 else -math.inf for t, p in everything.items()}
         self._prompt_tokens = prompt_tokens
-        self._writes = writes.split(" ") if writes else []
+        self._writes = writes
         self.asked: list[Messages] = []
 
     def next_token(self, messages: Messages, candidates: Sequence[str]) -> NextToken:
@@ -55,7 +59,13 @@ class FakeLMBackend:
         )
 
     def generate(self, messages: Messages, max_new_tokens: int) -> Generated:
-        written = self._writes[:max_new_tokens]
+        writes = self._writes(_shown(messages)) if callable(self._writes) else self._writes
+        written = (writes.split(" ") if writes else [])[:max_new_tokens]
         return Generated(
             text=" ".join(written), prompt_tokens=self._prompt_tokens, output_tokens=len(written)
         )
+
+
+def _shown(messages: Messages) -> str:
+    """All the text a prompt shows the model."""
+    return "\n".join(message["content"] for message in messages)
