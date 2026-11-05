@@ -1,0 +1,15 @@
+{
+  "decider": "lfm3",
+  "model": "LiquidAI/LFM3-1.7B",
+  "revision": "0dc4268b561499c648c7ba7c9466bf3d8d01517a",
+  "temperatures": {
+    "choice": 3.0394,
+    "noul": 12.4246,
+    "score": 3.7641
+  },
+  "fitted_from": {
+    "run": "20261105T100910Z-public",
+    "task_set": "public",
+    "n_calibration": 231
+  }
+}

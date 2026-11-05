@@ -1,0 +1,15 @@
+{
+  "decider": "d1",
+  "model": "LiquidAI/d1-2B",
+  "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1",
+  "temperatures": {
+    "choice": 1.0321,
+    "noul": 2.1097,
+    "score": 1.2695
+  },
+  "fitted_from": {
+    "run": "20261105T100421Z-public",
+    "task_set": "public",
+    "n_calibration": 231
+  }
+}
