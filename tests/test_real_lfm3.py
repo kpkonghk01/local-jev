@@ -22,7 +22,6 @@ import time
 import pytest
 from harness import jevbench
 from harness.server import serving_option_id
-from transformers import AutoTokenizer
 
 from local_jev.device import pick_device
 from local_jev.hf_backend import load_transformers_backend
@@ -30,7 +29,6 @@ from local_jev.option_id import (
     LFM3_CHAT_TEMPLATE_OPTIONS,
     LFM3_MODEL_ID,
     LFM3_REVISION,
-    OPTION_IDS,
     REASON_MAX_TOKENS,
 )
 
@@ -39,36 +37,15 @@ pytestmark = pytest.mark.real_model
 DEVICE = pick_device()
 
 
-class Scoring:
-    """The real backend, noting each prompt the Decider has it score and the Option IDs scored."""
-
-    def __init__(self, backend):
-        self._backend = backend
-        self.scored = []
-
-    def next_token(self, messages, candidates):
-        self.scored.append((messages, candidates))
-        return self._backend.next_token(messages, candidates)
-
-    def generate(self, messages, max_new_tokens):
-        return self._backend.generate(messages, max_new_tokens)
-
-
 @pytest.fixture(scope="module")
-def scoring():
-    return Scoring(
-        load_transformers_backend(
-            LFM3_MODEL_ID,
-            LFM3_REVISION,
-            device=DEVICE,
-            chat_template_options=LFM3_CHAT_TEMPLATE_OPTIONS,
-        )
+def lfm3_server():
+    backend = load_transformers_backend(
+        LFM3_MODEL_ID,
+        LFM3_REVISION,
+        device=DEVICE,
+        chat_template_options=LFM3_CHAT_TEMPLATE_OPTIONS,
     )
-
-
-@pytest.fixture(scope="module")
-def lfm3_server(scoring):
-    with serving_option_id(scoring, device=DEVICE) as client:
+    with serving_option_id(backend, device=DEVICE) as client:
         yield client
 
 
@@ -112,38 +89,13 @@ LEVELS_10 = {
 }
 
 
-def test_real_lfm3_answers_26_options_and_10_levels_validly(lfm3_server):
-    for task in (OPTIONS_26, LEVELS_10):
+def test_every_option_id_is_one_token_right_where_the_decider_scores_it(lfm3_server):
+    """The backend refuses to score an Option ID that is not one token right where the answer
+    starts, so these Tasks answered validly show every Option ID is: A-Z, yes/Yes/no/No, 0-9."""
+    for task in (OPTIONS_26, jevbench.task("easy-fact-00"), LEVELS_10):
         response = lfm3_server.post("/v1/systemone", json=jevbench.request_for(task))
         print(task["id"], response.json())
         assert jevbench.rejections(task, response.status_code, response.text) == []
-
-
-def test_every_option_id_is_one_token_right_where_the_decider_scores_it(lfm3_server, scoring):
-    """Checked on the prompts the Decider itself had scored, as LFM3's own tokenizer and chat
-    template read them: each Option ID adds exactly one token and leaves the prompt's alone."""
-    scoring.scored.clear()
-    for task in (OPTIONS_26, jevbench.task("easy-fact-00"), LEVELS_10):  # A-Z, yes/no, 0-9
-        lfm3_server.post("/v1/systemone", json=jevbench.request_for(task))
-    tokenizer = AutoTokenizer.from_pretrained(
-        LFM3_MODEL_ID, revision=LFM3_REVISION, trust_remote_code=True
-    )
-
-    def ids(text: str) -> list[int]:
-        return tokenizer(text, add_special_tokens=False)["input_ids"]
-
-    split = []
-    for messages, candidates in scoring.scored:
-        prompt = tokenizer.apply_chat_template(
-            [dict(m) for m in messages],
-            add_generation_prompt=True,
-            tokenize=False,
-            **LFM3_CHAT_TEMPLATE_OPTIONS,
-        )
-        before = ids(prompt)
-        split += [c for c in candidates if ids(prompt + c)[:-1] != before]
-    assert {c for _, candidates in scoring.scored for c in candidates} == set(OPTION_IDS)
-    assert split == []
 
 
 EASY_INTENT = jevbench.task("easy-intent-00")
