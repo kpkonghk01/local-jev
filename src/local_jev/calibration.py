@@ -12,7 +12,6 @@ Brier and ECE computed exactly as jevbench's `summarize` computes them.
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import random
@@ -22,6 +21,7 @@ from pathlib import Path
 
 from local_jev.decider import Label, Runtime
 from local_jev.distribution import argmax, normalised, softmax
+from local_jev.files import read_json, read_jsonl, write_json
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def load_calibration(directory: Path, runtime: Runtime) -> Calibration | None:
         log.info("no calibration for %s at %s: serving raw Distributions", runtime.decider, path)
         return None
     try:
-        written = json.loads(path.read_text(encoding="utf-8"))
+        written = read_json(path)
         fitted_for = (written["decider"], written["model"], written["revision"])
         temperatures = _temperatures(written["temperatures"])
         fitted_from = (written.get("fitted_from") or {}).get("run")
@@ -161,7 +161,7 @@ def calibrate(run: Path, calibrations_dir: Path = CALIBRATIONS_DIR) -> dict:
             "n_calibration": fitted.report["cross_validation"]["raw"]["n_calibration"],
         },
     }
-    _write_json(calibration_file, calibration)
+    write_json(calibration_file, calibration)
     report = {
         "run": run.name,
         "task_set": task_set,
@@ -170,7 +170,7 @@ def calibrate(run: Path, calibrations_dir: Path = CALIBRATIONS_DIR) -> dict:
         "calibration_file": str(calibration_file),
         **fitted.report,
     }
-    _write_json(run / REPORT_FILE, report)
+    write_json(run / REPORT_FILE, report)
     return report
 
 
@@ -180,7 +180,7 @@ def _decision_lines(run: Path) -> list[dict]:
         raise CalibrationRefused(
             f"{run} has no decisions.jsonl: it is not a finished `local-jev bench` run"
         )
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    return read_jsonl(path)
 
 
 def _served_raw_by_one_decider(run: Path, lines: Sequence[dict]) -> dict:
@@ -217,11 +217,7 @@ def _task_decision(line: dict) -> TaskDecision:
 
 def _run_record(run: Path) -> dict:
     path = run / "run.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-
-
-def _write_json(path: Path, value: dict) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return read_json(path) if path.is_file() else {}
 
 
 def fit(decisions: Sequence[TaskDecision], folds: int = FOLDS, seed: int = 0) -> Fitted:

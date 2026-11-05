@@ -18,11 +18,13 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import fields
 from datetime import UTC, datetime
-from itertools import count, zip_longest
+from itertools import zip_longest
 from pathlib import Path
 from typing import NamedTuple
 
 from local_jev.decider import Runtime
+from local_jev.figures import number, percent
+from local_jev.files import create_new, read_json, read_jsonl, utc_stamp
 
 JEVBENCH_URL = "https://github.com/fstandhartinger/jevbench.git"
 JEVBENCH_COMMIT = "609a664e81f46e03731600bd7bd9f1b7a61257c5"
@@ -138,7 +140,9 @@ def bench(
     tasks = _tasks(TASK_SETS[task_set](jevbench))
     if limit is not None:
         tasks = _spread(tasks, limit)
-    run = _new_run_dir(runs_dir, task_set, limit)
+    name = f"{utc_stamp()}-{task_set}" + (f"-limit{limit}" if limit is not None else "")
+    # Never an existing directory: jevbench's files there are create-only.
+    run = create_new(_made_dir, runs_dir, name)
     tasks_file = run / "tasks.jsonl"
     tasks_file.write_text("".join(t.line for t in tasks), encoding="utf-8")
 
@@ -171,7 +175,7 @@ def bench(
         "--manifest", run / "manifest.json",
         "--run-label", run.name,
     )  # fmt: skip
-    results = _jsonl(run / "results.jsonl")
+    results = read_jsonl(run / "results.jsonl") if (run / "results.jsonl").exists() else []
     if ran.returncode != 0 or len(results) != len(tasks):
         # It stops at once on 401, 403 or 429, and after three failures in a row.
         raise BenchFailed(
@@ -207,8 +211,8 @@ def bench(
 
 def headline(run: Path) -> str:
     """One line saying what a finished run measured, and on what."""
-    record = json.loads((run / "run.json").read_text(encoding="utf-8"))
-    summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
+    record = read_json(run / "run.json")
+    summary = read_json(run / "summary.json")
     server = record["server"]
     who = (
         f"{server['decider']} {server['model']}@{server['revision'][:7]} on {server['device']}, "
@@ -220,19 +224,11 @@ def headline(run: Path) -> str:
     latency = summary.get("latency") or {}
     return (
         f"{who}, Task set {record['task_set']}, {summary['n_attempted']} Tasks: "
-        f"Valid {_percent(summary.get('schema_validity'))}, "
-        f"Accuracy {_percent(summary.get('accuracy'))}, "
-        f"Brier {_number(summary.get('brier_mean'))}, ECE {_number(ece)}, "
-        f"client p50 {_number(latency.get('p50_s'))} s, p95 {_number(latency.get('p95_s'))} s"
+        f"Valid {percent(summary.get('schema_validity'))}, "
+        f"Accuracy {percent(summary.get('accuracy'))}, "
+        f"Brier {number(summary.get('brier_mean'))}, ECE {number(ece)}, "
+        f"client p50 {number(latency.get('p50_s'))} s, p95 {number(latency.get('p95_s'))} s"
     )
-
-
-def _percent(x: float | None) -> str:
-    return "n/a" if x is None else f"{100 * x:.1f}%"
-
-
-def _number(x: float | None) -> str:
-    return "n/a" if x is None else f"{x:.3f}"
 
 
 def _write_decisions(path: Path, tasks: list[_Task], results: list[dict]) -> None:
@@ -344,17 +340,9 @@ def _spread(tasks: list[_Task], n: int) -> list[_Task]:
     return [tasks[i] for i in sorted(in_turn[:n])]
 
 
-def _new_run_dir(runs_dir: Path, task_set: str, limit: int | None) -> Path:
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    name = f"{stamp}-{task_set}" + (f"-limit{limit}" if limit is not None else "")
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    for attempt in count(1):
-        run = runs_dir / (name if attempt == 1 else f"{name}-{attempt}")
-        try:
-            run.mkdir()  # never an existing directory: jevbench's files there are create-only
-        except FileExistsError:
-            continue
-        return run
+def _made_dir(path: Path) -> Path:
+    path.mkdir()
+    return path
 
 
 def _jevbench(
@@ -367,9 +355,3 @@ def _jevbench(
     command = [sys.executable, "-m", "jevbench.cli", *map(str, args)]
     stdout = subprocess.PIPE if args[0] == "summarize" else None
     return subprocess.run(command, cwd=checkout, env=env, stdout=stdout, text=True)
-
-
-def _jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]

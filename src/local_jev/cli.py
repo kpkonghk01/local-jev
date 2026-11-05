@@ -13,6 +13,7 @@ from local_jev.bench import TASK_SETS, BenchFailed, bench, headline
 from local_jev.calibration import CALIBRATIONS_DIR, REPORT_FILE, CalibrationRefused, calibrate
 from local_jev.decider import Decider
 from local_jev.device import DEVICES, DTYPES
+from local_jev.figures import number, percent
 from local_jev.report import ReportRefused, compare, write_new_report
 
 LoadDecider = Callable[[argparse.Namespace], Decider]
@@ -197,9 +198,9 @@ def _calibrate(args: argparse.Namespace) -> None:
     for name, before, after in rows:
         print(
             f"[local-jev]   {name:<6} {before['n']:>4} Tasks: "
-            f"Accuracy {_percent(before['accuracy'])} -> {_percent(after['accuracy'])}, "
-            f"Brier {_number(before['brier'])} -> {_number(after['brier'])}, "
-            f"ECE {_number(before['ece'])} -> {_number(after['ece'])}"
+            f"Accuracy {percent(before['accuracy'])} -> {percent(after['accuracy'])}, "
+            f"Brier {number(before['brier'])} -> {number(after['brier'])}, "
+            f"ECE {number(before['ece'])} -> {number(after['ece'])}"
         )
     print(f"[local-jev] calibration: {report['calibration_file']}")
     print(f"[local-jev] report: {args.run / REPORT_FILE}")
@@ -219,14 +220,6 @@ def _report(args: argparse.Namespace) -> None:
     print(f"[local-jev] report: {written}")
     print(f"[local-jev] {comparison.overall}")
     print(f"[local-jev] {comparison.default_decider}")
-
-
-def _percent(x: float | None) -> str:
-    return "n/a" if x is None else f"{100 * x:.1f}%"
-
-
-def _number(x: float | None) -> str:
-    return "n/a" if x is None else f"{x:.3f}"
 
 
 def _serve(args: argparse.Namespace) -> None:
