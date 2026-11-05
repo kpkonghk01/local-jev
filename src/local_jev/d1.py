@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
+from local_jev.control_tokens import NO_CONTROL_TOKENS, ControlTokens
 from local_jev.decider import (
     ChoiceQuestion,
     Decision,
@@ -44,32 +45,48 @@ class D1Decider:
         device: str,
         model_id: str = D1_MODEL_ID,
         revision: str = D1_REVISION,
+        control_tokens: ControlTokens = NO_CONTROL_TOKENS,
     ):
-        """The d1 Decider over `model`, which is `model_id` at `revision`, loaded onto `device`."""
+        """The d1 Decider over `model`, which is `model_id` at `revision`, loaded onto `device`.
+
+        `control_tokens` are its tokenizer's: a State or Question spelling one reaches d1 as text.
+        """
         self._model = model
+        self._control_tokens = control_tokens
         self.runtime = Runtime(decider="d1", model=model_id, revision=revision, device=device)
 
     def decide(self, state: State, question: Question, explain: bool = False) -> Decision:
         """d1 cannot write text (ADR-0003), so `explain` is ignored: no Reason, and no error."""
+        # d1 defuses its special tokens itself, but not `<think>` or `</think>` (not special).
+        state = self._control_tokens.defuse_json(state)
+        d1_question = _to_d1(question, self._control_tokens.defuse)
         # One Question per call: d1 packs a call's questions into one sequence, so each answer would
         # shift with the other Questions in the request.
-        out = self._model.system_one(state, {_NAME: _to_d1(question)})
+        out = self._model.system_one(state, {_NAME: d1_question})
         answer = out["answers"][_NAME]
         return Decision(distribution=_distribution(question, answer), usage=_usage(out))
 
 
-def _to_d1(question: Question) -> dict:
-    """`question` in d1's own question format."""
-    d1_question = {"type": question.type, "instructions": question.instructions}
+def _to_d1(question: Question, as_text: Callable[[str], str]) -> dict:
+    """`question` in d1's own question format, each of its texts passed through `as_text`.
+
+    The Labels are left as they are: d1 answers with them.
+    """
+    d1_question = {"type": question.type, "instructions": as_text(question.instructions)}
     match question:
         case ChoiceQuestion(criteria=criteria):
-            d1_question["criteria"] = dict(criteria)
+            d1_question["criteria"] = {
+                label: None if text is None else as_text(text) for label, text in criteria.items()
+            }
         case NoulQuestion(criteria=None):
             pass
         case NoulQuestion(criteria=criteria):
-            d1_question["criteria"] = {"true": criteria["yes"], "false": criteria["no"]}
+            d1_question["criteria"] = {
+                "true": as_text(criteria["yes"]),
+                "false": as_text(criteria["no"]),
+            }
         case ScoreQuestion(criteria=criteria):
-            d1_question["criteria"] = list(criteria)
+            d1_question["criteria"] = [as_text(level) for level in criteria]
     return d1_question
 
 
@@ -96,7 +113,7 @@ def load_d1(
 ) -> D1Decider:
     """The d1 Decider over the real model, downloaded on first use and warmed up."""
     import torch
-    from transformers import AutoModel
+    from transformers import AutoModel, AutoTokenizer
 
     device = pick_device(device)
     dtype = pick_dtype(device, dtype)
@@ -105,7 +122,14 @@ def load_d1(
     model = AutoModel.from_pretrained(
         model_id, revision=revision, trust_remote_code=True, dtype=getattr(torch, dtype)
     ).to(device)
-    decider = D1Decider(model, device=device, model_id=model_id, revision=revision)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, trust_remote_code=True)
+    decider = D1Decider(
+        model,
+        device=device,
+        model_id=model_id,
+        revision=revision,
+        control_tokens=ControlTokens.of(tokenizer),
+    )
     # The first call builds d1's runner (tokenizer, calibration, fused projections); pay for it now.
     decider.decide("Warm-up.", ChoiceQuestion("Is this a warm-up?", {"yes": None, "no": None}))
     log.info("d1 ready in %.1f s", time.perf_counter() - started)

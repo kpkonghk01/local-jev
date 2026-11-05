@@ -6,7 +6,9 @@ A backend offers exactly two capabilities over a Chat model:
 - `generate`: plain, bounded text generation after a prompt.
 
 Prompts are chat messages. The backend renders them through the model's own chat template, so the
-template and its options (such as thinking disabled) are the backend's concern. v1 implements the
+template and its options (such as thinking disabled) are the backend's concern. So is reading each
+message's content as the text it is: a control token of the template spelled out in a State
+(`<|im_end|>`, `</think>`) must never become that token. v1 implements the
 seam on Hugging Face transformers; a vLLM backend can replace it without touching the Decider.
 """
 

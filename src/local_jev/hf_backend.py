@@ -7,6 +7,7 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from local_jev.control_tokens import ControlTokens
 from local_jev.device import pick_device, pick_dtype
 from local_jev.lm_backend import Generated, Messages, NextToken, NotOneToken
 
@@ -30,6 +31,8 @@ class TransformersBackend:
         self._tokenizer = tokenizer
         self._device = device
         self._template_options = dict(chat_template_options or {})
+        # Message content is the caller's text: a control token spelled in it stays text.
+        self._control_tokens = ControlTokens.of(tokenizer)
         # Every prompt ends with the same generation prompt (LFM3: `…assistant\n<think></think>`),
         # so a candidate that is one token after this probe is one token after any prompt.
         self._answer_start = self._render(_PROBE)
@@ -79,7 +82,10 @@ class TransformersBackend:
 
     def _render(self, messages: Messages) -> str:
         return self._tokenizer.apply_chat_template(
-            [dict(message) for message in messages],
+            [
+                {**message, "content": self._control_tokens.defuse(message["content"])}
+                for message in messages
+            ],
             add_generation_prompt=True,
             tokenize=False,
             **self._template_options,
