@@ -34,6 +34,10 @@ class TransformersBackend:
         # so a candidate that is one token after this probe is one token after any prompt.
         self._answer_start = self._render(_PROBE)
         self._token_ids: dict[str, int] = {}
+        # The template's own control tokens (LFM3: BOS, <|im_start|>, <|im_end|>, <think>,
+        # </think>): the model writing any of them has left its answer, so generation stops there.
+        added = set(tokenizer.get_added_vocab().values())
+        self._stops = sorted({i for i in self._encode(self._answer_start) if i in added})
 
     def next_token(self, messages: Messages, candidates: Sequence[str]) -> NextToken:
         import torch
@@ -49,7 +53,12 @@ class TransformersBackend:
 
     def generate(self, messages: Messages, max_new_tokens: int) -> Generated:
         """Sampled with the model's own generation defaults (LFM3: temperature 0.1, repetition
-        penalty 1.1); generation stops at the model's end-of-turn token or at the bound."""
+        penalty 1.1); generation stops at the bound or at any control token of the chat template,
+        such as the end of the model's turn, which is not part of the text.
+
+        LFM3 marks only some of those tokens special (not `</think>`), so the text is cut at the
+        stop rather than left to `skip_special_tokens`.
+        """
         import torch
 
         prompt = self._prompt_ids(messages)
@@ -58,10 +67,12 @@ class TransformersBackend:
                 input_ids=prompt,
                 attention_mask=torch.ones_like(prompt),
                 max_new_tokens=max_new_tokens,
+                eos_token_id=self._stops,
             )
-        new = out[0, prompt.shape[1] :]
+        new = out[0, prompt.shape[1] :].tolist()
+        text = new[:-1] if new and new[-1] in self._stops else new
         return Generated(
-            text=self._tokenizer.decode(new, skip_special_tokens=True).strip(),
+            text=self._tokenizer.decode(text, skip_special_tokens=True).strip(),
             prompt_tokens=prompt.shape[1],
             output_tokens=len(new),
         )
