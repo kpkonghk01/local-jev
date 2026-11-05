@@ -257,6 +257,7 @@ uv run local-jev bench --limit 10                   # 終端機 2：smoke run
 uv run local-jev serve --decider d1      # 終端機 1：先啟動 server（任何 Decider 都可以）
 uv run local-jev bench                   # 終端機 2：跑全部 231 個 public Tasks
 uv run local-jev bench --task-set hard   # 只跑 hard
+uv run local-jev bench --task-set zh-tw  # 同樣 231 個 Tasks，State 是繁體中文
 uv run local-jev bench --limit 10        # smoke run：10 個 Tasks，不到一分鐘
 ```
 
@@ -269,7 +270,7 @@ uv run local-jev bench --limit 10        # smoke run：10 個 Tasks，不到一�
 | 選項 | 預設 | 說明 |
 | --- | --- | --- |
 | `--endpoint` | `http://127.0.0.1:8000` | Server 的 base URL（不要加 `/v1`） |
-| `--task-set` | `public` | `easy`（48）、`original`（72）、`hard`（111）、`public`（三者合計 231） |
+| `--task-set` | `public` | `easy`（48）、`original`（72）、`hard`（111）、`public`（三者合計 231）；繁體中文版 `zh-tw-easy`、`zh-tw-original`、`zh-tw-hard`、`zh-tw`（見下節） |
 | `--limit N` | 全部 | 只跑 N 個 Tasks：輪流從每個（Task set 的部分 × Question type）群組依檔案順序各取一個，所以 `--limit 10` 也會涵蓋 `choice`、`noul`、`score` 三種。 |
 | `--runs-dir` | `runs` | Run 目錄放在這裡（git-ignored） |
 | `--cache-dir` | `.cache` | jevbench 的快取放在這裡（git-ignored） |
@@ -284,6 +285,14 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 ```
 
 `raw` 表示 server 送出的是 raw Distribution；server 有套用 calibration 時會寫 `calibrated`。
+
+### 繁體中文 Task set（`zh-tw`）
+
+`src/local_jev/zh_tw/` 是 231 個 public Tasks 的副本，只有 State 翻成繁體中文（台灣用語）；Question（英文）、Labels、預期 Label 和其他欄位都與 jevbench 固定 commit 的原檔完全相同，所以中文與英文的數字可以直接比較。它隨 local-jev 一起 commit，不需要從 jevbench 抓。
+
+- `--task-set zh-tw` 跑全部 231 個，`zh-tw-easy`、`zh-tw-original`、`zh-tw-hard` 各跑一個部分。`decisions.jsonl` 的 `task_set` 帶 `zh-tw-` 前綴，英文與中文的 Decisions 不會混在一起。
+- 來源、翻譯說明、jevbench 的 MIT attribution，以及要人工 spot-check 的 10 個 Task id，都在 [`src/local_jev/zh_tw/README.md`](src/local_jev/zh_tw/README.md) 與同目錄的 `NOTICE`。
+- `tests/test_zh_tw_tasks.py` 對照固定 commit 的 jevbench 檢查：除了 State 之外每個欄位都相同，JSON State 的 key 與結構不變，每個 State 都是繁體中文。改動這些檔案後請重跑。
 
 ### Run 目錄裡有什麼
 
@@ -307,7 +316,7 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 | 欄位 | 內容 |
 | --- | --- |
 | `task_id` | jevbench 的 Task id |
-| `task_set` | 這個 Task 來自哪個部分：`easy`、`original` 或 `hard` |
+| `task_set` | 這個 Task 來自哪個部分：`easy`、`original`、`hard`，繁體中文版是 `zh-tw-easy`、`zh-tw-original`、`zh-tw-hard` |
 | `question_type` | `choice`、`noul` 或 `score` |
 | `labels` | 這個 Task 的 Label set（jevbench 作者的順序；`noul` 是 `["no", "yes"]`，`score` 是 `["0", …]`） |
 | `expected` | 預期的 Label，一律是字串（`score` 也是，例如 `"2"`） |
@@ -415,6 +424,79 @@ d1 的 `noul` 明顯過度自信（T ≈ 2.1），`choice` 本來就差不多（
 | `cross_validation.raw`、`calibrated` | 合計：`n`（有預期 Label 的 Tasks）、`n_calibration`（其中有有效 Distribution 的）、`accuracy`、`brier`、`ece` |
 | `cross_validation.by_question_type.<type>.raw`、`.calibrated` | 同上，只算這種 Question type |
 
+## 比較報告（`local-jev report`）
+
+`local-jev report` 把幾個跑完的 benchmark run 合併成一份 Markdown 報告：並列各 Decider、raw 與 calibrated、英文與繁體中文的數字，附上 jevbench 的 reference，逐條檢查議定的 feasibility verdict 標準，並選出預設的 Decider。
+
+```sh
+uv run local-jev report runs/<d1 的 raw run> runs/<lfm3 的 raw run> runs/<繁體中文的 run> …
+```
+
+| 選項 | 預設 | 說明 |
+| --- | --- | --- |
+| `--output FILE` | 無 | 寫到這個檔案（已存在就覆寫） |
+| `--runs-dir` | `runs` | 沒給 `--output` 時，寫成這裡的新檔 `report-<UTC 時間>.md`，絕不覆寫之前的報告 |
+
+不是跑完的 `local-jev bench` run（缺 `run.json`、`summary.json` 或 `decisions.jsonl`）、或同一個 run 混了英文與繁體中文的 Tasks，`report` 會直接拒絕並說明原因。
+
+用真正的 d1（MPS、全部 231 個 public Tasks，跑過 `calibrate`）產生的報告，Results 與 verdict 的前幾行：
+
+```text
+| d1 LiquidAI/d1-2B@652f920 | raw | English | public | 231 | 76.6% | 0.285 | 0.072 | 100.0% | 175 / 2620 ms | 173 / 2617 ms | mps | 20261105T085252Z-public |
+| d1 LiquidAI/d1-2B@652f920 | calibrated, 5-fold CV | English | public | 231 | 76.6% | 0.275 | 0.060 | 100.0% | 175 / 2620 ms | 173 / 2617 ms | mps | 20261105T085252Z-public |
+| 3b. Server-side p50 ≤ 150 ms on an L4-class GPU | **pending** | no run of d1 LiquidAI/d1-2B@652f920 on cuda on the 231 public Tasks |
+```
+
+### Results：每個 run 一行
+
+欄位：Decider（含 model 與 revision）、Calibration、Language、Task set、Tasks、Accuracy、Brier、ECE、Valid answers、client p50/p95、server p50/p95、Hardware、Run。
+
+- **raw**：jevbench 自己對這個 run 算的 `summary.json`。
+- **calibrated, 5-fold CV**：只有 run 裡有 `calibration-report.json`（跑過 `local-jev calibrate`）才有這一行，用的是 fitter 的 cross-validated 數字（每個 Task 都用其他 fold 擬合的 T calibrate），絕不用 in-sample 數字。Calibration 是事後套上去的，所以 Valid answers 與延遲沿用同一個 raw run。
+- **calibrated, served**：server 本身套用 calibration 跑出來的 run。Accuracy、Valid answers、延遲照列，但 Brier 與 ECE 標成 `withheld`：如果 temperature 就是用這批 Tasks 擬合的，那些數字是 in-sample。要 calibrated 的 Brier、ECE，請用 `serve --no-calibration` 跑 raw run，再對它 `calibrate`。
+- **Language**：看 `decisions.jsonl` 每一行的 `task_set`：以 `zh-tw-` 開頭（例如 `zh-tw-easy`）是繁體中文，否則是英文。
+- **Client 延遲**是 jevbench 量的 wall-clock（`summary.json` 的 `latency`，包含失敗的請求）；**server 延遲**是每個答案 `runtime.total_ms` 的 p50/p95，percentile 的算法和 jevbench 一樣（線性內插）。
+- **Hardware** 是答案 `runtime.device` 回報的 device。每一行只來自一個 run、一種硬體，不同硬體的 run 絕不合併成同一個延遲數字。萬一一個 run 的答案來自不只一種 device（例如中途換了 server），Hardware 寫成 `cpu + mps`，兩個延遲欄都寫 `mixed`。
+
+想要繁體中文的 calibrated 行：對 `--task-set zh-tw` 的 raw run 跑 `calibrate`。`calibrate` 一定會寫 calibration 檔案，所以要把 `--calibrations-dir` 指到別處，免得蓋掉 committed 的、用英文 public Tasks 擬合的 calibration：
+
+```sh
+uv run local-jev calibrate runs/<繁體中文的 raw run> --calibrations-dir /tmp/zh-tw-calibrations
+```
+
+### jevbench reference points
+
+Jev 1.13.0 與 system-one-open（Gemma 4 E2B with LoRA, on an L4），每一行都標明 suite 與出處（jevbench 固定 commit `609a664` 裡的檔案與欄位）：
+
+| System | Suite | Accuracy | Brier | ECE | 出處 |
+| --- | --- | --- | --- | --- | --- |
+| Jev 1.13.0 | 231 個 public Tasks | 86.6% | 未公布 | 未公布 | `results/v1.2/jevbench-v1.2-per-task.json` |
+| system-one-open | 231 個 public Tasks | 73.2% | 未公布 | 未公布 | 同上 |
+| Jev 1.13.0 | 舊的 v1 suite（242 decisions） | 96.3% | 0.056 | 0.027 | `results/jevbench-v1-results.json`（`RESULTS.md` 第 32 行） |
+| system-one-open | 舊的 v1 suite（242 decisions） | 90.1% | 0.138 | 0.068 | `results/jevbench-v1-results.json`（`RESULTS.md` 第 36 行） |
+
+- spec 列的 reference（Jev 96.3%、Brier 0.056；system-one-open 90.1%）是舊的 v1 suite，不是 verdict 用的 231 個 public Tasks，報告裡明確標成 older suite。
+- 在 public Tasks 上，jevbench 只公布每個 Task 的對錯與延遲，沒有 Distribution，所以 Brier、ECE、Valid answers 都沒有公布。Accuracy ≥ 80% 這條標準落在 system-one-open（73.2%）與 Jev（86.6%）之間。
+- reference 的延遲是 jevbench 維護者從自己的 client 量到遠端 endpoint 的 raw wall-clock（沒有乘上他們對 self-hosted endpoint 的 ×2），不能拿來和本機 server 端的時間比。
+- `tests/test_comparison_report.py` 會拿這些數字去比對 jevbench 固定 commit 裡的原始檔案。
+
+### Feasibility verdict
+
+只看英文、完整 231 個 public Tasks 的 run（`--task-set public`、沒有 `--limit`）。每條標準是 pass、fail 或 pending：
+
+| 標準 | pass | fail | pending |
+| --- | --- | --- | --- |
+| 1. 每個 Decider 的 Valid answers 都是 100% | `d1`、`lfm3` 都有 run，而且全部 100% | 任一個 run 低於 100% | 還有 Decider 沒有 run |
+| 2. 最好的 Decider 達到 Accuracy ≥ 80% 且 Brier ≤ 0.20 | 有 Decider 的 raw 或 cross-validated 數字同時達標 | 沒有 Decider 能達標 | 還有 Decider 沒有 run，或 Accuracy 已達標但還沒 calibrate |
+| 3a. 在 Mac（MPS）上記錄每個 Decider 的 server 端 p50 | 每個 Decider 都有 MPS 的 run | （沒有門檻） | 還有 Decider 沒有 MPS 的 run |
+| 3b. L4 等級 GPU 上 server 端 p50 ≤ 150 ms | 預設 Decider 的每個 CUDA run 都達標 | 有 CUDA run 超過 150 ms | 沒有預設 Decider 的 CUDA run |
+
+- 標準 2 只用 raw 或 cross-validated 的 Brier，calibrated, served 的 Brier 不算。Temperature scaling 不會改變 argmax，所以 Accuracy 不到 80% 的 Decider calibrate 也沒用，直接算 fail。
+- 標準 3b：run 只記錄 `cuda`，看不出是不是 L4 等級的 GPU，evidence 會註明沒有檢查。目前沒有 GPU 主機，所以它一直是 pending。
+- **Overall**：全部 pass 才是 pass（feasible, worth further investment）；任一條 fail 就是 fail；其餘是 pending，並列出是哪幾條。
+- 繁體中文的 run 另外列在 Results，不影響 verdict。
+- **Default Decider**：在 231 個 public Tasks 上依序比較：答案全部有效、達到標準 2、Accuracy 較高、Brier 較低。還有 Decider 沒跑時標成 provisional。
+
 ## 測試
 
 ```sh
@@ -424,4 +506,4 @@ uv run pytest -m real_model tests/test_real_lfm3.py   # 只跑其中一個 model
 uv run ruff check
 ```
 
-快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`tests/test_lockfile.py` 確認 `uv.lock` 在每個平台鎖的 torch 來自正確的 index；`tests/test_compose.py` 用 `docker compose config` 確認 profile、共用的 volume、環境變數與 GPU override，沒有 docker CLI 時自動略過。`tests/test_devcontainer.py` 確認 dev container 從 `dev` target 建、跟 compose 掛同一個 Hugging Face cache volume、GPU 是選用的、建立時跑 `uv sync`、推薦的 extension（比對 compose 的部分沒有 docker CLI 時略過）。容器實際啟動（health 與 10 個 Tasks 的 smoke run）與 dev container 裡的各層測試，要照上面的 compose 與 dev container 步驟手動驗證。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。
+快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`tests/test_comparison_report.py` 也用同一個快取：跑一個真的 run 給 `report`，並把報告裡 jevbench 的 reference 數字對照 jevbench 的原始檔案。`tests/test_zh_tw_tasks.py` 用同一個快取對照 jevbench 檢查繁體中文 Task set；離線又沒有快取時，需要原檔的幾項會 skip 並說明原因。`tests/test_lockfile.py` 確認 `uv.lock` 在每個平台鎖的 torch 來自正確的 index；`tests/test_compose.py` 用 `docker compose config` 確認 profile、共用的 volume、環境變數與 GPU override，沒有 docker CLI 時自動略過。`tests/test_devcontainer.py` 確認 dev container 從 `dev` target 建、跟 compose 掛同一個 Hugging Face cache volume、GPU 是選用的、建立時跑 `uv sync`、推薦的 extension（比對 compose 的部分沒有 docker CLI 時略過）。容器實際啟動（health 與 10 個 Tasks 的 smoke run）與 dev container 裡的各層測試，要照上面的 compose 與 dev container 步驟手動驗證。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。

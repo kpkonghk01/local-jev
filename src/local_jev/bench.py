@@ -37,16 +37,29 @@ def _public(*parts: str) -> TaskFiles:
     return lambda jevbench: [(p, jevbench / "datasets" / "public" / f"{p}.jsonl") for p in parts]
 
 
+ZH_TW_TASKS = Path(__file__).with_name("zh_tw")
+"""The Traditional-Chinese copy of the public Tasks, committed with local-jev (see its README)."""
+
+
+def _zh_tw(*parts: str) -> TaskFiles:
+    return lambda _jevbench: [(f"zh-tw-{p}", ZH_TW_TASKS / f"{p}.jsonl") for p in parts]
+
+
 TASK_SETS: dict[str, TaskFiles] = {
     "easy": _public("easy"),
     "original": _public("original"),
     "hard": _public("hard"),
     "public": _public("easy", "original", "hard"),
+    "zh-tw-easy": _zh_tw("easy"),
+    "zh-tw-original": _zh_tw("original"),
+    "zh-tw-hard": _zh_tw("hard"),
+    "zh-tw": _zh_tw("easy", "original", "hard"),
 }
-"""The Task sets `bench` can run; `public` is all 231 public Tasks.
+"""The Task sets `bench` can run; `public` is all 231 public Tasks, `zh-tw` their copy with each
+State in Traditional Chinese.
 
 Another set is one more entry; its files need not be in jevbench's checkout. Its part names go into
-every kept Decision's `task_set`, so a translated copy should name its parts apart (`zh-tw-easy`).
+every kept Decision's `task_set`, so a translated copy names its parts apart (`zh-tw-easy`).
 """
 
 _KEY_ENV = "TYPESAFE_API_KEY"
