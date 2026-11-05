@@ -80,7 +80,8 @@ def _choice(wire: dict, instructions: str) -> ChoiceQuestion:
         raise ValueError(f'multi-select choice ("multiple": true) is not supported; {_SUPPORTED}')
     criteria = wire.get("criteria")
     descriptions = criteria.values() if isinstance(criteria, dict) else ()
-    if not (descriptions and all(d is None or isinstance(d, str) for d in descriptions)):
+    # Every Label's Criterion is shown to the model, so each must say something.
+    if not (descriptions and all(isinstance(d, str) and d.strip() for d in descriptions)):
         hint = "; a list of levels is a score" if isinstance(criteria, list) else ""
         raise ValueError(
             'a choice\'s "criteria" names its options and says what each means, as '

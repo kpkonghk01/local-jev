@@ -95,6 +95,10 @@ def test_a_request_without_questions_is_refused(questions):
         pytest.param({}, id="empty"),
         pytest.param(["Wants to track an order", "Wants to cancel it"], id="levels"),
         pytest.param({"track_order": 3}, id="non-text-description"),
+        pytest.param({"track_order": None, "cancel_order": None}, id="labels-without-criteria"),
+        pytest.param(
+            {"track_order": "Asks where it is", "cancel_order": " "}, id="blank-criterion"
+        ),
     ],
 )
 def test_a_choice_without_criteria_naming_its_options_is_refused(criteria):

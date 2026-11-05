@@ -124,7 +124,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 | type | `criteria` | 答案 |
 | --- | --- | --- |
-| `choice` | `{label: 說明}`，1 到 26 個選項（兩個 Decider 都一樣） | `{"type": "choice", "choice": <最可能的 Label>, "probabilities": {label: …}}` |
+| `choice` | `{label: 說明}`，1 到 26 個選項（兩個 Decider 都一樣）；每個 Label 都必須有非空白的說明，因為 Criteria 會給模型看 | `{"type": "choice", "choice": <最可能的 Label>, "probabilities": {label: …}}` |
 | `noul` | 選用，`{"true": "yes 代表什麼", "false": "no 代表什麼"}` | `{"type": "noul", "noul": <P(yes)>}` |
 | `score` | 2 到 10 個等級說明的 list，由低到高 | `{"type": "score", "score": <最可能的等級>, "probabilities": {"0": …, "1": …}}` |
 

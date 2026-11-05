@@ -169,8 +169,7 @@ def _asking(state: State, question: Question, forms: Mapping[Label, Sequence[str
         case ChoiceQuestion(criteria=criteria):
             lines += ["", "Options:"]
             for label, description in criteria.items():
-                shown = f"{label}: {description}" if description else label
-                lines.append(f"{forms[label][0]}. {shown}")
+                lines.append(f"{forms[label][0]}. {label}: {description}")
         case NoulQuestion(criteria=criteria):
             if criteria:
                 lines += [f"{label}: {criteria[label]}" for label in ("yes", "no")]

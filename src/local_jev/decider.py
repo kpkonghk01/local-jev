@@ -22,7 +22,7 @@ class ChoiceQuestion:
 
     type: ClassVar[Literal["choice"]] = "choice"
     instructions: str
-    criteria: Mapping[Label, str | None]
+    criteria: Mapping[Label, str]
 
     @property
     def labels(self) -> tuple[Label, ...]:

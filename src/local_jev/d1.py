@@ -75,9 +75,7 @@ def _to_d1(question: Question, as_text: Callable[[str], str]) -> dict:
     d1_question = {"type": question.type, "instructions": as_text(question.instructions)}
     match question:
         case ChoiceQuestion(criteria=criteria):
-            d1_question["criteria"] = {
-                label: None if text is None else as_text(text) for label, text in criteria.items()
-            }
+            d1_question["criteria"] = {label: as_text(text) for label, text in criteria.items()}
         case NoulQuestion(criteria=None):
             pass
         case NoulQuestion(criteria=criteria):
@@ -131,6 +129,8 @@ def load_d1(
         control_tokens=ControlTokens.of(tokenizer),
     )
     # The first call builds d1's runner (tokenizer, calibration, fused projections); pay for it now.
-    decider.decide("Warm-up.", ChoiceQuestion("Is this a warm-up?", {"yes": None, "no": None}))
+    decider.decide(
+        "Warm-up.", ChoiceQuestion("Is this a warm-up?", {"yes": "It is", "no": "It is not"})
+    )
     log.info("d1 ready in %.1f s", time.perf_counter() - started)
     return decider
