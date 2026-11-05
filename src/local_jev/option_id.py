@@ -6,7 +6,7 @@ its mass on "Yes"); the level digits 0 to 9 for `score`. One forward pass reads 
 likelihood of every Option ID right where the assistant's answer starts (after LFM3's empty think
 block, with no leading space), and the Distribution is that likelihood normalised over the Labels.
 
-With `explain`, a Reason is generated afterwards, from the same Situation and Question with the
+With `explain`, a Reason is generated afterwards, from the same State and Question with the
 most likely Label given as the answer, and asked for in the State's language (Traditional Chinese
 or English), so it explains the Decision and cannot change it.
 
@@ -156,14 +156,17 @@ def _messages(state: State, question: Question, forms: Mapping[Label, Sequence[s
 def _reason_messages(
     state: State, question: Question, forms: Mapping[Label, Sequence[str]], answer: Label
 ) -> Messages:
-    """One user turn: the same Situation and Question, the answer already chosen, and a request
+    """One user turn: the same State and Question, the answer already chosen, and a request
     to say why, asked in the State's language."""
     lines = [*_asking(state, question, forms), "", f"The answer is: {answer}", ""]
     return [{"role": "user", "content": "\n".join([*lines, _ASK_WHY[_language(state)]])}]
 
 
 def _asking(state: State, question: Question, forms: Mapping[Label, Sequence[str]]) -> list[str]:
-    """The Situation, the Question and what each Label means, as lines of the prompt."""
+    """The State, the Question and what each Label means, as lines of the prompt.
+
+    The model reads the State under the heading "Situation".
+    """
     lines = ["Situation:", _as_text(state), "", f"Question: {question.instructions}"]
     match question:
         case ChoiceQuestion(criteria=criteria):

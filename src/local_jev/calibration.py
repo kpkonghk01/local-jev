@@ -255,8 +255,8 @@ def fit(decisions: Sequence[TaskDecision], folds: int = FOLDS, seed: int = 0) ->
     for question_type in sorted({d.question_type for d in decisions}):
         of_type = [i for i, d in enumerate(decisions) if d.question_type == question_type]
         by_type[question_type] = {
-            "raw": _scores([decisions[i] for i in of_type], [raw[i] for i in of_type]),
-            "calibrated": _scores(
+            "raw": _metrics([decisions[i] for i in of_type], [raw[i] for i in of_type]),
+            "calibrated": _metrics(
                 [decisions[i] for i in of_type], [calibrated[i] for i in of_type]
             ),
         }
@@ -265,8 +265,8 @@ def fit(decisions: Sequence[TaskDecision], folds: int = FOLDS, seed: int = 0) ->
             "folds": folds,
             "seed": seed,
             "fold_temperatures": fold_temperatures,
-            "raw": _scores(decisions, raw),
-            "calibrated": _scores(decisions, calibrated),
+            "raw": _metrics(decisions, raw),
+            "calibrated": _metrics(decisions, calibrated),
             "by_question_type": by_type,
         }
     }
@@ -328,7 +328,7 @@ def _temperature(rows: Sequence[tuple[list[float], int]]) -> float:
     return round(math.exp((lo + hi) / 2), 4)
 
 
-def _scores(
+def _metrics(
     decisions: Sequence[TaskDecision], distributions: Sequence[Mapping[Label, float] | None]
 ) -> dict:
     """Accuracy, Brier and ECE as jevbench's `summarize` computes them.
