@@ -154,8 +154,66 @@ LOCAL_JEV_TOKEN=換成你的-token uv run local-jev serve --decider d1 --host 0.
 ```
 
 - 有設 `LOCAL_JEV_TOKEN`（非空字串）時，`/v1/systemone` 必須帶 `Authorization: Bearer <token>`，沒帶或錯了都回 401。`/health` 不需要 token，方便 compose 做 health check。
-- 沒設時，帶任何 token 或不帶都接受。jevbench 的 `typesafe` adapter 預設一定會送一個 token（環境變數空著它就不肯跑），所以本機跑 benchmark 時隨便設一個假值即可，例如 `TYPESAFE_API_KEY=local`。`local-jev bench` 會自動處理（見下節）。
+- 沒設時，帶任何 token 或不帶都接受。jevbench 的 `typesafe` adapter 預設一定會送一個 token（環境變數空著它就不肯跑），所以本機跑 benchmark 時隨便設一個假值即可，例如 `TYPESAFE_API_KEY=local`。`local-jev bench` 會自動處理（見「跑 benchmark」）。
 - Server 有設 token 時，把同一個值放進 jevbench `--key-env` 指定的環境變數。用 `local-jev bench` 時，只要在同一個 shell 設好 `LOCAL_JEV_TOKEN` 即可。
+
+## 用 compose 在容器裡執行（CPU 與 GPU）
+
+需求：Docker 與 Compose v2（Mac 上用 [OrbStack](https://orbstack.dev/)）。`compose.yaml` 每個 Decider 一個 service，各自放在同名的 profile 底下，所以只有指定的那個會啟動；沒給 `--profile` 就什麼都不啟動。
+
+### 在 Mac 上（OrbStack，CPU）
+
+```sh
+docker compose --profile d1 up -d --wait   # 建 image、啟動 d1，等到 health 回報 ready
+uv run local-jev bench --limit 10          # 從 Mac 對容器跑 smoke run（d1 在 port 8000）
+docker compose --profile d1 down           # 停掉並移除容器；模型留在 volume 裡
+```
+
+- `--profile lfm3` 啟動 LFM3，聽 port 8001：`uv run local-jev bench --endpoint http://127.0.0.1:8001`。
+- **一次只跑一個 profile。** 兩個 Decider 在 CPU 上用 fp32，加起來約 15 GB，剛好是 OrbStack 給容器的上限（15.7 GiB）。
+- 容器裡沒有 MPS（macOS 上沒有任何 container runtime 能讓 Linux 容器用 Metal），只能用 CPU：短的 State 每個 Decision 約 1 秒，很長的 State（例如 hard 裡的 `long_policy` Tasks）要 15–30 秒。拿來開發與驗證可以，延遲數字請用原生的 `uv run`（MPS）或 GPU host 量。
+- **Model 不在 image 裡。** 第一次啟動時 server 會把 model 下載到 named volume `hf-cache`（容器裡的 `HF_HOME=/data/hf`），固定在 Decider 的 pinned revision，之後的啟動直接讀它；兩個 service 共用這個 volume。整個 Hugging Face cache 一起掛載，因為 hub 把各 model 的檔案連到一個共用的 blob store，只掛一個 model 的目錄會留下斷掉的 symlink。
+- 第一次下載 3–4 GB 需要一段時間，health check 給它 30 分鐘的 `start_period`；`docker compose logs -f d1` 可以看進度。`docker compose down -v` 會連 volume 一起刪掉，下次啟動就要重新下載。
+
+用環境變數設定（可以寫在 repo 根目錄的 `.env`，已 git-ignored；compose 會自動讀）：
+
+| 環境變數 | 預設 | 說明 |
+| --- | --- | --- |
+| `LOCAL_JEV_TOKEN` | 空 | 有設就要求 bearer token（見「用 bearer token 保護」）；`bench` 在同一個 shell 讀同一個變數 |
+| `LOCAL_JEV_D1_MODEL`、`LOCAL_JEV_D1_REVISION` | 空：d1 自己的 model 與 pinned revision | 傳給 `d1` service 的 `LOCAL_JEV_MODEL`、`LOCAL_JEV_REVISION`；給了 model 就必須給 revision |
+| `LOCAL_JEV_LFM3_MODEL`、`LOCAL_JEV_LFM3_REVISION`、`LOCAL_JEV_LFM3_CHAT_TEMPLATE_OPTIONS` | 空：LFM3 與它的 pinned revision | 傳給 `lfm3` service 的 `LOCAL_JEV_MODEL`、`LOCAL_JEV_REVISION`、`LOCAL_JEV_CHAT_TEMPLATE_OPTIONS` |
+| `LOCAL_JEV_D1_PORT`、`LOCAL_JEV_LFM3_PORT` | `8000`、`8001` | 主機上的 port |
+| `LOCAL_JEV_BIND` | `127.0.0.1` | 主機上 publish 的位址；要讓其他機器連線就設 `0.0.0.0`，並一定要設 `LOCAL_JEV_TOKEN` |
+
+不用 compose 也可以直接跑 image（`--decider` 之後的參數都交給 `local-jev serve`）：
+
+```sh
+docker run --rm -p 127.0.0.1:8000:8000 -v local-jev_hf-cache:/data/hf local-jev:runtime --decider d1
+```
+
+### Image
+
+`Dockerfile` 是 multi-stage，`compose.yaml` 用的是 `runtime` target：
+
+- `ubuntu:24.04`，uv binary 從固定版本（含 digest）的 `ghcr.io/astral-sh/uv` image 複製，Python 3.12 由 uv 安裝；
+- `uv sync --frozen --no-dev`：照 `uv.lock` 裝 runtime 相依套件，不含 dev 套件；
+- 以 non-root user `app`（UID 10001）執行；
+- 保留 gcc：LFM3 的 conv kernel 在 CUDA 上用 Triton，Triton 在 run time 編譯 kernel。
+
+torch 依平台來自不同的 index（都鎖在 `uv.lock` 裡，版本都是 2.11.0）：linux/amd64 用 PyTorch 的 CUDA 12.8 index，linux/arm64 用 PyTorch 的 CPU index（PyPI 的 Linux wheel 在 arm64 上也會帶進 CUDA 13 的 library），Mac 用 PyPI（支援 MPS 的版本）。runtime image 在 linux/arm64 約 1.4 GB，在 linux/amd64 約 7.7 GB（CUDA library 佔了大部分）。
+
+另一個 target `dev` 是 dev container 用的：多了 dev 相依套件與 git，source 在執行時掛載到 `/app`。
+
+### 在 Linux NVIDIA GPU host 上（未驗證）
+
+```sh
+docker compose -f compose.yaml -f compose.gpu.yaml --profile d1 up -d --wait
+```
+
+- **`compose.gpu.yaml` 還沒在真的 GPU host 上跑過。** 它只替每個 service 加上 NVIDIA GPU 的 device reservation（`driver: nvidia`、`count: all`、`capabilities: [gpu]`），其他設定都跟 CPU 一樣；`--device auto` 會自動選 CUDA 與 bfloat16。
+- Host 需要 NVIDIA driver（570.26 以上，CUDA 12.8 的要求）與 NVIDIA Container Toolkit。Image 不用 `nvidia/cuda` 當 base：torch 的 wheel 自帶 CUDA library。
+- 在 GPU host 上 compose 會直接建 linux/amd64 的 image，裡面是 CUDA 12.8 版的 torch。在 Mac 上也可以用模擬的方式建同一個 image（`docker build --platform linux/amd64 --target runtime .`，OrbStack 上約 13 分鐘），但不能在 Mac 上跑 CUDA。
+- GPU 記憶體夠的話，兩個 Decider 可以同時跑（`--profile d1 --profile lfm3`，port 各自是 8000 與 8001）。
 
 ## 跑 benchmark（jevbench）
 
@@ -332,4 +390,4 @@ uv run pytest -m real_model tests/test_real_lfm3.py   # 只跑其中一個 model
 uv run ruff check
 ```
 
-快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。
+快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`tests/test_lockfile.py` 確認 `uv.lock` 在每個平台鎖的 torch 來自正確的 index；`tests/test_compose.py` 用 `docker compose config` 確認 profile、共用的 volume、環境變數與 GPU override，沒有 docker CLI 時自動略過。容器實際啟動（health 與 10 個 Tasks 的 smoke run）要照上面的 compose 步驟手動驗證。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。
