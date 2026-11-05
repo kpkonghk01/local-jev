@@ -7,7 +7,9 @@ import json
 import logging
 import os
 from collections.abc import Callable, Sequence
+from pathlib import Path
 
+from local_jev.bench import TASK_SETS, BenchFailed, bench, headline
 from local_jev.decider import Decider
 from local_jev.device import DEVICES, DTYPES
 
@@ -48,7 +50,8 @@ CHAT_MODEL_DECIDERS = ("lfm3",)
 """Deciders over a Chat model, which take chat-template options."""
 
 TOKEN_ENV = "LOCAL_JEV_TOKEN"
-"""When set and non-empty, `serve` requires this bearer token on every request but /health."""
+"""When set and non-empty, `serve` requires this bearer token on every request but /health,
+and `bench` has jevbench send it."""
 MODEL_ENV = "LOCAL_JEV_MODEL"
 REVISION_ENV = "LOCAL_JEV_REVISION"
 CHAT_TEMPLATE_OPTIONS_ENV = "LOCAL_JEV_CHAT_TEMPLATE_OPTIONS"
@@ -93,6 +96,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         f'{{"enable_thinking": false}} (env {CHAT_TEMPLATE_OPTIONS_ENV})',
     )
 
+    bench = commands.add_parser("bench", help="run jevbench against a running server")
+    bench.add_argument("--endpoint", default="http://127.0.0.1:8000", help="the server's base URL")
+    bench.add_argument("--task-set", choices=sorted(TASK_SETS), default="public")
+    bench.add_argument("--limit", type=int, help="run only N of the Task set's Tasks")
+    bench.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    bench.add_argument("--cache-dir", type=Path, default=Path(".cache"))
+
     args = parser.parse_args(argv)
     if args.command == "serve":
         if args.model and not args.revision:
@@ -100,6 +110,24 @@ def main(argv: Sequence[str] | None = None) -> None:
         if args.chat_template_options and args.decider not in CHAT_MODEL_DECIDERS:
             serve.error(f"--chat-template-options is for a Chat model, not {args.decider}")
         _serve(args)
+    elif args.command == "bench":
+        _bench(args)
+
+
+def _bench(args: argparse.Namespace) -> None:
+    try:
+        run = bench(
+            args.endpoint,
+            args.task_set,
+            limit=args.limit,
+            runs_dir=args.runs_dir,
+            cache_dir=args.cache_dir,
+            token=os.environ.get(TOKEN_ENV) or None,
+        )
+    except BenchFailed as e:
+        raise SystemExit(f"local-jev bench: {e}") from e
+    print(f"[local-jev] run: {run}")
+    print(f"[local-jev] {headline(run)}")
 
 
 def _serve(args: argparse.Namespace) -> None:
