@@ -1,5 +1,7 @@
 """Requests are processed one at a time: concurrent requests never interleave model access."""
 
+import itertools
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from harness import jevbench
@@ -29,18 +31,23 @@ def test_concurrent_requests_never_reach_the_model_at_the_same_time():
     assert [r.status_code for r in responses] == [200] * 6
 
 
-def test_concurrent_requests_are_each_answered_in_full_before_the_next_starts():
-    states_heard = []
+def test_concurrent_requests_never_interleave_their_questions():
+    """Each request holds the model from its first Question to its last: no two requests' spans
+    on the model overlap, whichever request goes first."""
+    heard_at: dict[str, list[float]] = {}
 
     def answer(state, question):
-        states_heard.append(state)
+        heard_at.setdefault(state, []).append(time.monotonic())
         return D1_ANSWER
 
     model = FakeD1Model(answer, seconds_per_call=0.02)
     questions = {"first": QUESTION, "second": QUESTION, "third": QUESTION}
     bodies = [{"state": f"Message {i}", "questions": questions} for i in range(4)]
     with serving_d1(model) as client:
-        _post_concurrently(client, bodies)
+        responses = _post_concurrently(client, bodies)
 
-    runs = [state for i, state in enumerate(states_heard) if i == 0 or states_heard[i - 1] != state]
-    assert sorted(runs) == [f"Message {i}" for i in range(4)]
+    assert [r.status_code for r in responses] == [200] * 4
+    spans = sorted((min(times), max(times)) for times in heard_at.values())
+    overlapping = [(a, b) for a, b in itertools.pairwise(spans) if b[0] < a[1]]
+    assert len(spans) == 4
+    assert overlapping == []
