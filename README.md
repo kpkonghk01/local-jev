@@ -4,6 +4,7 @@
 
 目前可用的 Decider：
 
+- `lfm3`：LFM3 Option-ID Decider。`LiquidAI/LFM3-1.7B`（Chat model）透過 Option-ID scoring 回答：關掉 thinking，一次 forward pass 讀出每個 Option ID 的 next-token 機率，再在 Label set 上正規化。固定在 revision `0dc4268b561499c648c7ba7c9466bf3d8d01517a`。
 - `d1`：`LiquidAI/d1-2B`（Decision model），透過它自己的 `system_one` head 一次 forward pass 直接回答，固定在 revision `652f920e544ea37f81e4b0ce89b81d4ed0da90b1`。
 
 ## 在 Mac 上原生執行（`uv run`）
@@ -12,22 +13,53 @@
 
 ```sh
 uv sync                                  # 第一次：建立 .venv 並安裝鎖定的版本
-uv run local-jev serve --decider d1      # 預設聽 127.0.0.1:8000
+uv run local-jev serve --decider lfm3    # 或 --decider d1；預設聽 127.0.0.1:8000
 ```
 
-> **第一次啟動會下載模型。** `LiquidAI/d1-2B` 約 3.6 GB，會下載到 Hugging Face 快取（預設 `~/.cache/huggingface/hub`，可用 `HF_HOME` 改位置），之後的啟動直接讀快取。下載期間 server 已經在聽，但 health 會回報尚未就緒。下載完成後可以設 `HF_HUB_OFFLINE=1`，省掉啟動時對 Hub 的查詢。
+> **第一次啟動會下載模型。** `LiquidAI/LFM3-1.7B` 約 3.2 GB、`LiquidAI/d1-2B` 約 3.6 GB，會下載到 Hugging Face 快取（預設 `~/.cache/huggingface/hub`，可用 `HF_HOME` 改位置），之後的啟動直接讀快取。下載期間 server 已經在聽，但 health 會回報尚未就緒。下載完成後可以設 `HF_HUB_OFFLINE=1`，省掉啟動時對 Hub 的查詢。
 
 選項：
 
 | 選項 | 預設 | 說明 |
 | --- | --- | --- |
-| `--decider` | （必填） | 目前只有 `d1` |
+| `--decider` | （必填） | `lfm3` 或 `d1`，見下方「選擇 Decider」 |
 | `--host` | `127.0.0.1` | 要讓其他機器連線時改成 `0.0.0.0` |
 | `--port` | `8000` | |
 | `--device` | `auto` | 自動依序選 CUDA → MPS → CPU；可指定 `cuda`、`mps`、`cpu` |
 | `--dtype` | `auto` | CUDA/MPS 用 `bfloat16`、CPU 用 `float32`；可指定 `bfloat16`、`float16`、`float32` |
+| `--model` | Decider 自己的 model | Hugging Face model id；也可用環境變數 `LOCAL_JEV_MODEL` |
+| `--revision` | Decider 自己固定的 revision | 給了 `--model` 就必須一起給；也可用 `LOCAL_JEV_REVISION` |
+| `--chat-template-options` | `{"enable_thinking": false}` | 只適用 `lfm3`：傳給 chat template 的選項（JSON 物件），會合併在預設值之上；也可用 `LOCAL_JEV_CHAT_TEMPLATE_OPTIONS` |
 
 在 Mac 上 `auto` 會選 MPS（Metal）。容器裡沒有 MPS，只能用 CPU。
+
+### 選擇 Decider
+
+每個 server process 只載入一個 Decider，啟動時用 `--decider` 選定；要比較兩者就各開一個 server（不同 port）分別跑 benchmark。兩個 Decider 對外的 wire format 完全一樣。
+
+| | `lfm3` | `d1` |
+| --- | --- | --- |
+| Model | `LiquidAI/LFM3-1.7B`，Chat model | `LiquidAI/d1-2B`，Decision model |
+| 怎麼得到 Distribution | Option-ID scoring：`choice` 的選項依 Criteria 送來的順序標成 A–Z，`noul` 讀 yes/no（`Yes`/`yes`、`No`/`no` 合併計算），`score` 讀等級數字 0–9；在 Label set 上正規化 | d1 自己的 decision head |
+| 每個 Decision 的成本 | 一次 forward pass，不生成任何 token | 一次 forward pass |
+| MPS 上的延遲（M3 Pro） | 每個 Decision 約 115–240 ms（prompt 80–530 tokens） | 約 65–120 ms（prompt 約 65–75 tokens） |
+| 記憶體（MPS bf16，driver） | 約 4.1 GB | 約 5.4 GB |
+
+`lfm3` 在啟動時會先確認每個 Option ID（A–Z、yes/Yes/no/No、0–9）在被讀取的位置剛好是一個 token，不是的話 health 會回報 `failed`，不會等到第一個請求才出錯。
+
+**換成另一個 ≤ 3B 的 Chat model 不需要改程式**，例如：
+
+```sh
+uv run local-jev serve --decider lfm3 \
+  --model Qwen/Qwen3-1.7B --revision <commit sha> \
+  --chat-template-options '{"enable_thinking": false}'
+```
+
+- 一定要給 `--revision`：model 用 `trust_remote_code` 載入，固定 revision 才能固定實際執行的程式碼。
+- chat template 選項依 model 而定；Option ID 直接接在 chat template 的 generation prompt 之後讀取，所以 template 必須在那裡結束（例如 LFM3 的 `<think></think>`）。
+- `--model`/`--revision` 也適用 `d1`（換另一個 d1 checkpoint）。
+
+**已知風險：`lfm3` 有很強的 recency bias。** 研究時用同一個三選一的問題試過全部 6 種選項順序，LFM3-1.7B 每次都選兩個合理選項中「排在後面」的那個，機率 0.85–1.00。這會拉高 Brier 分數，temperature calibration 也修不了 argmax。v1 不處理它：把多種選項順序平均起來可以抵銷順序的影響，但每個 Decision 就不再只要一次 forward pass。
 
 ### 確認服務就緒
 
@@ -68,7 +100,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
              "total_ms": 98.512, "decider_ms": 97.904}}
 ```
 
-- `usage`：所有 Question 加總的 token 數。d1 只讀不生成，所以 `output_tokens` 一律是 0。
+- `usage`：所有 Question 加總的 token 數。兩個 Decider 都只讀 prompt 不生成，所以 `output_tokens` 一律是 0。
 - `timing`：server 自己量的時間（毫秒）。`total_ms` 從解析完請求到產生回應為止（包含等前一個請求的時間），`decider_ms` 是其中花在 Decider 上的部分。拿來跟 client 端的 wall-clock 對照，就能分出網路與 client 的額外開銷。
 - `runtime`：同樣的時間，再加上 Decider 名稱、model id、revision 與 device（`cuda`、`mps` 或 `cpu`）。jevbench 會把回應頂層的 `runtime` 原樣抄進 `results.jsonl` 的每一筆紀錄，所以每筆結果都帶著它是在什麼硬體上跑的。
 
@@ -78,7 +110,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 | type | `criteria` | 答案 |
 | --- | --- | --- |
-| `choice` | `{label: 說明}`，至少一個選項 | `{"type": "choice", "choice": <最可能的 Label>, "probabilities": {label: …}}` |
+| `choice` | `{label: 說明}`，1 到 26 個選項（兩個 Decider 都一樣） | `{"type": "choice", "choice": <最可能的 Label>, "probabilities": {label: …}}` |
 | `noul` | 選用，`{"true": "yes 代表什麼", "false": "no 代表什麼"}` | `{"type": "noul", "noul": <P(yes)>}` |
 | `score` | 2 到 10 個等級說明的 list，由低到高 | `{"type": "score", "score": <最可能的等級>, "probabilities": {"0": …, "1": …}}` |
 
@@ -86,7 +118,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 
 ### 錯誤的請求回 422
 
-不支援的 Question type（`text`、`number`、`date`、`box`、`boxes`、多選 `choice`，也就是 `"multiple": true`）與格式錯誤的請求，一律回 HTTP 422，`detail` 是一句話，指出哪裡錯、該怎麼改，例如：
+不支援的 Question type（`text`、`number`、`date`、`box`、`boxes`、多選 `choice`，也就是 `"multiple": true`）、超過 26 個選項的 `choice`（`lfm3` 用 A–Z 標選項；為了兩個 Decider 行為一致，`d1` 也一樣拒絕）與格式錯誤的請求，一律回 HTTP 422，`detail` 是一句話，指出哪裡錯、該怎麼改，例如：
 
 ```json
 {"detail": "questions.decision: a score's \"criteria\" lists 2 to 10 levels, lowest first, as [\"Can wait\", \"Today\", \"Now\"]; this one lists 11"}
@@ -107,7 +139,8 @@ LOCAL_JEV_TOKEN=換成你的-token uv run local-jev serve --decider d1 --host 0.
 ## 測試
 
 ```sh
-uv run pytest                 # 快速測試：in-process 打 HTTP contract，用假的 d1 model，不載入權重
-uv run pytest -m real_model   # 真模型測試：載入真正的 d1-2B（第一次會下載），按需執行
+uv run pytest                 # 快速測試：in-process 打 HTTP contract，用假的 d1 model 與假的 LM backend，不載入權重
+uv run pytest -m real_model   # 真模型測試：載入真正的 LFM3-1.7B 與 d1-2B（第一次會下載），按需執行
+uv run pytest -m real_model tests/test_real_lfm3.py   # 只跑其中一個 model
 uv run ruff check
 ```

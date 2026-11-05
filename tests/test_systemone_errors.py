@@ -108,6 +108,16 @@ def test_a_choice_without_criteria_naming_its_options_is_refused(criteria):
     assert "criteria" in missing and "criteria" in unusable
 
 
+def test_a_choice_of_more_than_26_options_is_refused_whatever_the_decider():
+    question = jevbench.request_for(EASY_INTENT)["questions"]["decision"]
+    criteria = {f"option_{i}": f"Option {i}" for i in range(27)}
+
+    detail = _refusal(_asking({**question, "criteria": criteria}))
+
+    assert detail.startswith("questions.decision: ")
+    assert "at most 26 options" in detail
+
+
 @pytest.mark.parametrize(
     "criteria",
     [

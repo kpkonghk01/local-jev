@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from local_jev.d1 import D1Decider
 from local_jev.decider import Decider
+from local_jev.option_id import OptionIDDecider
 from local_jev.wire import create_app
 
 
@@ -38,6 +39,11 @@ def serving(
 def serving_d1(model, device: str = "cpu", token: str | None = None) -> Iterator[TestClient]:
     """A running server with the d1 Decider over `model` (a fake or the real d1) on `device`."""
     return serving(lambda: D1Decider(model, device=device), token=token)
+
+
+def serving_option_id(backend, device: str = "cpu") -> Iterator[TestClient]:
+    """A running server with the LFM3 Option-ID Decider over `backend` (a fake or the real one)."""
+    return serving(lambda: OptionIDDecider(backend, device=device))
 
 
 @contextmanager

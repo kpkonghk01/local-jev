@@ -33,6 +33,8 @@ log = logging.getLogger(__name__)
 _SUPPORTED = "this server answers noul, choice and score Questions"
 _UNSUPPORTED_TYPES = ("text", "number", "date", "box", "boxes")
 """TypeSafe's other Question types, which d1 knows but local-jev does not answer."""
+MAX_CHOICE_OPTIONS = 26
+"""The Option-ID Decider names `choice` options A to Z; every Decider keeps to the same limit."""
 
 
 def _question(wire: JsonValue) -> Question:
@@ -81,6 +83,11 @@ def _choice(wire: dict, instructions: str) -> ChoiceQuestion:
         raise ValueError(
             'a choice\'s "criteria" names its options and says what each means, as '
             f'{{"billing": "Charges and refunds", "shipping": "Delivery"}}{hint}'
+        )
+    if len(criteria) > MAX_CHOICE_OPTIONS:
+        raise ValueError(
+            f"a choice has at most {MAX_CHOICE_OPTIONS} options (one letter each); "
+            f"this one has {len(criteria)}"
         )
     return ChoiceQuestion(instructions, criteria)
 
