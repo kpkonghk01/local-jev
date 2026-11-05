@@ -1,0 +1,10 @@
+.git
+.venv
+.cache
+runs
+.claude
+.scratch
+.env
+**/__pycache__
+.pytest_cache
+.ruff_cache
