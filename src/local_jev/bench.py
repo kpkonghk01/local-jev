@@ -43,7 +43,11 @@ TASK_SETS: dict[str, TaskFiles] = {
     "hard": _public("hard"),
     "public": _public("easy", "original", "hard"),
 }
-"""The Task sets `bench` can run; `public` is all 231 public Tasks."""
+"""The Task sets `bench` can run; `public` is all 231 public Tasks.
+
+Another set is one more entry; its files need not be in jevbench's checkout. Its part names go into
+every kept Decision's `task_set`, so a translated copy should name its parts apart (`zh-tw-easy`).
+"""
 
 _KEY_ENV = "TYPESAFE_API_KEY"
 
@@ -215,7 +219,11 @@ def _write_decisions(path: Path, tasks: list[_Task], results: list[dict]) -> Non
     """One line per Task jevbench attempted: its served Distribution beside its expected Label.
 
     jevbench's results carry neither the expected Label nor the Question type, so they are joined
-    here with the Tasks on `task_id`. The calibration fitter reads this file.
+    here with the Tasks on `task_id`. The calibration fitter reads this file. Each line holds:
+    `task_id`; `task_set` (the part: easy, original, hard); `question_type`; `labels` (the Label
+    set); `expected` (a Label, always a string); `distribution` (as served, keyed by Label, or
+    null); jevbench's `valid`, `predicted` and `correct`; `latency_s` (client); and the answer's
+    `runtime` (Decider, model, revision, device, server `total_ms` and `decider_ms`).
     """
     by_id = {t.task["id"]: t for t in tasks}
     with path.open("x", encoding="utf-8") as out:
