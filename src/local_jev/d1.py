@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any, Protocol
 
-from local_jev.decider import ChoiceQuestion, Decision, Question, State
+from local_jev.decider import ChoiceQuestion, Decision, Question, Runtime, State, Usage
 from local_jev.device import pick_device, pick_dtype
 
 D1_MODEL_ID = "LiquidAI/d1-2B"
@@ -26,13 +26,24 @@ _NAME = "decision"
 
 
 class D1Decider:
-    def __init__(self, model: D1Model):
+    def __init__(
+        self,
+        model: D1Model,
+        *,
+        device: str,
+        model_id: str = D1_MODEL_ID,
+        revision: str = D1_REVISION,
+    ):
+        """The d1 Decider over `model`, which is `model_id` at `revision`, loaded onto `device`."""
         self._model = model
+        self.runtime = Runtime(decider="d1", model=model_id, revision=revision, device=device)
 
     def decide(self, state: State, question: Question) -> Decision:
+        # One Question per call: d1 packs a call's questions into one sequence, so each answer would
+        # shift with the other Questions in the request.
         out = self._model.system_one(state, {_NAME: _to_d1(question)})
         answer = out["answers"][_NAME]
-        return Decision(distribution=answer["probabilities"])
+        return Decision(distribution=answer["probabilities"], usage=_usage(out))
 
 
 def _to_d1(question: Question) -> dict:
@@ -41,6 +52,12 @@ def _to_d1(question: Question) -> dict:
         "instructions": question.instructions,
         "criteria": dict(question.criteria),
     }
+
+
+def _usage(out: dict) -> Usage:
+    """d1's own token counts; it reads the prompt in one pass and never generates."""
+    usage = out.get("usage") or {}
+    return Usage(input_tokens=int(usage.get("input_tokens") or 0))
 
 
 def load_d1(
@@ -60,7 +77,7 @@ def load_d1(
     model = AutoModel.from_pretrained(
         model_id, revision=revision, trust_remote_code=True, dtype=getattr(torch, dtype)
     ).to(device)
-    decider = D1Decider(model)
+    decider = D1Decider(model, device=device, model_id=model_id, revision=revision)
     # The first call builds d1's runner (tokenizer, calibration, fused projections); pay for it now.
     decider.decide("Warm-up.", ChoiceQuestion("Is this a warm-up?", {"yes": None, "no": None}))
     log.info("d1 ready in %.1f s", time.perf_counter() - started)
