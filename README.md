@@ -133,8 +133,81 @@ LOCAL_JEV_TOKEN=換成你的-token uv run local-jev serve --decider d1 --host 0.
 ```
 
 - 有設 `LOCAL_JEV_TOKEN`（非空字串）時，`/v1/systemone` 必須帶 `Authorization: Bearer <token>`，沒帶或錯了都回 401。`/health` 不需要 token，方便 compose 做 health check。
-- 沒設時，帶任何 token 或不帶都接受。jevbench 的 `typesafe` adapter 預設一定會送一個 token（環境變數空著它就不肯跑），所以本機跑 benchmark 時隨便設一個假值即可，例如 `TYPESAFE_API_KEY=local`。
-- Server 有設 token 時，把同一個值放進 jevbench `--key-env` 指定的環境變數。
+- 沒設時，帶任何 token 或不帶都接受。jevbench 的 `typesafe` adapter 預設一定會送一個 token（環境變數空著它就不肯跑），所以本機跑 benchmark 時隨便設一個假值即可，例如 `TYPESAFE_API_KEY=local`。`local-jev bench` 會自動處理（見下節）。
+- Server 有設 token 時，把同一個值放進 jevbench `--key-env` 指定的環境變數。用 `local-jev bench` 時，只要在同一個 shell 設好 `LOCAL_JEV_TOKEN` 即可。
+
+## 跑 benchmark（jevbench）
+
+`local-jev bench` 用 jevbench 自己的 `typesafe` adapter 評測一個**已經在跑**的 server，一個指令完成 run 與 summarize。請在 repo 根目錄執行（預設路徑都相對於目前目錄）。
+
+```sh
+uv run local-jev serve --decider d1      # 終端機 1：先啟動 server（任何 Decider 都可以）
+uv run local-jev bench                   # 終端機 2：跑全部 231 個 public Tasks
+uv run local-jev bench --task-set hard   # 只跑 hard
+uv run local-jev bench --limit 10        # smoke run：10 個 Tasks，不到一分鐘
+```
+
+它會依序：
+
+1. 把 jevbench 抓到固定的 commit `609a664e81f46e03731600bd7bd9f1b7a61257c5`，放在 `.cache/jevbench/<commit>/`（git-ignored）。快取的 checkout 若已在這個 commit 就直接重用，不再連網；不對（或抓到一半中斷）就重新抓。要改從 mirror 抓，設 `LOCAL_JEV_JEVBENCH_URL=<git URL>`。
+2. 等 server 的 `/health` 回報 ready（Decider 載入中最多等 10 分鐘）。連不上 server、或 Decider 載入失敗，就直接結束、不建立 run 目錄。jevbench 連續三次失敗就會停止整個 run，所以絕不能讓它先碰到還沒就緒的 server。
+3. 在 `runs/` 底下開一個新的目錄，用 jevbench 跑選定的 Task set，再 summarize。
+
+| 選項 | 預設 | 說明 |
+| --- | --- | --- |
+| `--endpoint` | `http://127.0.0.1:8000` | Server 的 base URL（不要加 `/v1`） |
+| `--task-set` | `public` | `easy`（48）、`original`（72）、`hard`（111）、`public`（三者合計 231） |
+| `--limit N` | 全部 | 只跑 N 個 Tasks：輪流從每個（Task set 的部分 × Question type）群組依檔案順序各取一個，所以 `--limit 10` 也會涵蓋 `choice`、`noul`、`score` 三種。 |
+| `--runs-dir` | `runs` | Run 目錄放在這裡（git-ignored） |
+| `--cache-dir` | `.cache` | jevbench 的快取放在這裡（git-ignored） |
+
+Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值；沒設時 `bench` 會給 jevbench 一個假的 key。
+
+跑完會印出 run 目錄和一行重點數字，例如：
+
+```text
+[local-jev] run: runs/20261105T090000Z-public
+[local-jev] d1 LiquidAI/d1-2B@652f920 on mps, Task set public, 231 Tasks: Valid 100.0%, Accuracy …, Brier …, ECE …, client p50 … s, p95 … s
+```
+
+### Run 目錄裡有什麼
+
+每次 run 都是一個新目錄 `runs/<UTC 時間>-<Task set>[-limit<N>]`（同一秒內再跑一次會加 `-2`），絕不覆寫之前的 run。
+
+| 檔案 | 內容 |
+| --- | --- |
+| `tasks.jsonl` | 這次實際跑的 Tasks，逐行照抄 jevbench 的 dataset。`run` 和 `summarize` 都讀這個檔，所以 `--limit` 的 run 一樣是 `complete: true`。 |
+| `results.jsonl` | jevbench 的逐 Task 結果（`probs`、`valid`、`correct`、`latency_s`，以及 server 回應頂層的 `runtime`） |
+| `raw/` | jevbench 的 raw evidence：每個 Task 一個檔，存完整的 request 與 response |
+| `ledger.jsonl`、`manifest.json` | jevbench 的成本 ledger 與 run 設定（含 `dataset_hash`） |
+| `summary.json` | jevbench `summarize` 的輸出：`accuracy`、`brier_mean`、`ece`、`schema_validity`（Valid answers）、`latency.p50_s`/`p95_s`（client 端）等 |
+| `decisions.jsonl` | 每個 Task 一行：server 給的 Distribution 和預期的 Label 放在一起，給 calibration 用（格式見下） |
+| `run.json` | 這次 run 的紀錄：jevbench 的 URL 與 commit、endpoint、Task set、`limit`、Task 數、起訖時間，以及 `server`：server 自己回報的 Decider、model id、revision 與硬體（`cuda`、`mps` 或 `cpu`） |
+
+`run.json` 只在整個 run 成功跑完才會寫入。jevbench 中途停止（遇到 401、403、429，或連續三次失敗）時，`local-jev bench` 以非零 exit code 結束並說明跑到第幾個 Task；目錄裡留著 jevbench 已寫的結果與 raw evidence 供除錯，但沒有 `summary.json`、`decisions.jsonl`、`run.json`。
+
+`decisions.jsonl` 每行的欄位（jevbench 的結果裡沒有預期的 Label，也沒有 Question type，所以這裡用 `task_id` 跟 Tasks 對起來）：
+
+| 欄位 | 內容 |
+| --- | --- |
+| `task_id` | jevbench 的 Task id |
+| `task_set` | 這個 Task 來自哪個部分：`easy`、`original` 或 `hard` |
+| `question_type` | `choice`、`noul` 或 `score` |
+| `labels` | 這個 Task 的 Label set（jevbench 作者的順序；`noul` 是 `["no", "yes"]`，`score` 是 `["0", …]`） |
+| `expected` | 預期的 Label，一律是字串（`score` 也是，例如 `"2"`） |
+| `distribution` | Server 給的 Distribution，以 Label 為 key（jevbench 的 `probs_as_returned`；`noul` 是 `{"yes": p, "no": 1 - p}`）。沒有可用的答案時是 `null` |
+| `valid` | jevbench 是否接受這個 Distribution（無效的答案算答錯，calibration 應略過） |
+| `predicted`、`correct` | jevbench 的 argmax Label，以及它是否等於 `expected` |
+| `latency_s` | jevbench 量的 client 端 wall-clock（秒） |
+| `runtime` | Server 這次回應的 `runtime`：Decider、model、revision、device，以及 server 端的 `total_ms`、`decider_ms` |
+
+### jevbench 的眉角（`bench` 已處理）
+
+- `typesafe` adapter 的 key 環境變數空著就一個請求都不送：沒設 token 時給它一個假的 `TYPESAFE_API_KEY`。
+- 未知 endpoint 沒有價格時，jevbench 每個 Task 預留 $0.02、累計到 $15 上限就停，而且 cost 記成 null：一律傳 `--price-in-per-m 0 --price-out-per-m 0 --reserve-usd 0`。
+- jevbench 的結果與 raw evidence 只能寫到新檔，而且必須在它的 checkout 之外：每次 run 都用新目錄、絕對路徑。
+- jevbench 是用目前的 Python（`python -m jevbench.cli`）在它的 checkout 裡執行，不是 `uv run`（checkout 裡有它自己的 `pyproject.toml`）。它只用標準函式庫，不是 local-jev 的相依套件。
+- jevbench 不會送 `explain`，所以 benchmark 一律不產生 Reason。
 
 ## 測試
 
@@ -144,3 +217,5 @@ uv run pytest -m real_model   # 真模型測試：載入真正的 LFM3-1.7B 與 
 uv run pytest -m real_model tests/test_real_lfm3.py   # 只跑其中一個 model
 uv run ruff check
 ```
+
+快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。
