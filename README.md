@@ -223,6 +223,7 @@ docker compose -f compose.yaml -f compose.gpu.yaml --profile d1 up -d --wait
 uv run local-jev serve --decider d1      # 終端機 1：先啟動 server（任何 Decider 都可以）
 uv run local-jev bench                   # 終端機 2：跑全部 231 個 public Tasks
 uv run local-jev bench --task-set hard   # 只跑 hard
+uv run local-jev bench --task-set zh-tw  # 同樣 231 個 Tasks，State 是繁體中文
 uv run local-jev bench --limit 10        # smoke run：10 個 Tasks，不到一分鐘
 ```
 
@@ -235,7 +236,7 @@ uv run local-jev bench --limit 10        # smoke run：10 個 Tasks，不到一�
 | 選項 | 預設 | 說明 |
 | --- | --- | --- |
 | `--endpoint` | `http://127.0.0.1:8000` | Server 的 base URL（不要加 `/v1`） |
-| `--task-set` | `public` | `easy`（48）、`original`（72）、`hard`（111）、`public`（三者合計 231） |
+| `--task-set` | `public` | `easy`（48）、`original`（72）、`hard`（111）、`public`（三者合計 231）；繁體中文版 `zh-tw-easy`、`zh-tw-original`、`zh-tw-hard`、`zh-tw`（見下節） |
 | `--limit N` | 全部 | 只跑 N 個 Tasks：輪流從每個（Task set 的部分 × Question type）群組依檔案順序各取一個，所以 `--limit 10` 也會涵蓋 `choice`、`noul`、`score` 三種。 |
 | `--runs-dir` | `runs` | Run 目錄放在這裡（git-ignored） |
 | `--cache-dir` | `.cache` | jevbench 的快取放在這裡（git-ignored） |
@@ -250,6 +251,14 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 ```
 
 `raw` 表示 server 送出的是 raw Distribution；server 有套用 calibration 時會寫 `calibrated`。
+
+### 繁體中文 Task set（`zh-tw`）
+
+`src/local_jev/zh_tw/` 是 231 個 public Tasks 的副本，只有 State 翻成繁體中文（台灣用語）；Question（英文）、Labels、預期 Label 和其他欄位都與 jevbench 固定 commit 的原檔完全相同，所以中文與英文的數字可以直接比較。它隨 local-jev 一起 commit，不需要從 jevbench 抓。
+
+- `--task-set zh-tw` 跑全部 231 個，`zh-tw-easy`、`zh-tw-original`、`zh-tw-hard` 各跑一個部分。`decisions.jsonl` 的 `task_set` 帶 `zh-tw-` 前綴，英文與中文的 Decisions 不會混在一起。
+- 來源、翻譯說明、jevbench 的 MIT attribution，以及要人工 spot-check 的 10 個 Task id，都在 [`src/local_jev/zh_tw/README.md`](src/local_jev/zh_tw/README.md) 與同目錄的 `NOTICE`。
+- `tests/test_zh_tw_tasks.py` 對照固定 commit 的 jevbench 檢查：除了 State 之外每個欄位都相同，JSON State 的 key 與結構不變，每個 State 都是繁體中文。改動這些檔案後請重跑。
 
 ### Run 目錄裡有什麼
 
@@ -273,7 +282,7 @@ Server 有設 `LOCAL_JEV_TOKEN` 時，在跑 `bench` 的 shell 設同一個值�
 | 欄位 | 內容 |
 | --- | --- |
 | `task_id` | jevbench 的 Task id |
-| `task_set` | 這個 Task 來自哪個部分：`easy`、`original` 或 `hard` |
+| `task_set` | 這個 Task 來自哪個部分：`easy`、`original`、`hard`，繁體中文版是 `zh-tw-easy`、`zh-tw-original`、`zh-tw-hard` |
 | `question_type` | `choice`、`noul` 或 `score` |
 | `labels` | 這個 Task 的 Label set（jevbench 作者的順序；`noul` 是 `["no", "yes"]`，`score` 是 `["0", …]`） |
 | `expected` | 預期的 Label，一律是字串（`score` 也是，例如 `"2"`） |
@@ -390,4 +399,4 @@ uv run pytest -m real_model tests/test_real_lfm3.py   # 只跑其中一個 model
 uv run ruff check
 ```
 
-快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`tests/test_lockfile.py` 確認 `uv.lock` 在每個平台鎖的 torch 來自正確的 index；`tests/test_compose.py` 用 `docker compose config` 確認 profile、共用的 volume、環境變數與 GPU override，沒有 docker CLI 時自動略過。容器實際啟動（health 與 10 個 Tasks 的 smoke run）要照上面的 compose 步驟手動驗證。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。
+快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`tests/test_zh_tw_tasks.py` 用同一個快取對照 jevbench 檢查繁體中文 Task set；離線又沒有快取時，需要原檔的幾項會 skip 並說明原因。`tests/test_lockfile.py` 確認 `uv.lock` 在每個平台鎖的 torch 來自正確的 index；`tests/test_compose.py` 用 `docker compose config` 確認 profile、共用的 volume、環境變數與 GPU override，沒有 docker CLI 時自動略過。容器實際啟動（health 與 10 個 Tasks 的 smoke run）要照上面的 compose 步驟手動驗證。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。
