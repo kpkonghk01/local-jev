@@ -4,24 +4,28 @@
 
 **Blocked by:** 02 (d1 answers `noul` and `score`; bad requests get a clear 4xx)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The LM backend interface offers exactly two capabilities, implemented on Hugging Face transformers:
+- [x] The LM backend interface offers exactly two capabilities, implemented on Hugging Face transformers:
   - next-token probabilities over a given set of candidate tokens after a prompt;
   - plain, bounded text generation.
-- [ ] `local-jev serve --decider lfm3` loads `LiquidAI/LFM3-1.7B` at the pinned revision with remote code trusted. It renders prompts through the model's chat template with thinking disabled. Device and dtype rules are the same as for d1.
-- [ ] Option-ID scoring:
+- [x] `local-jev serve --decider lfm3` loads `LiquidAI/LFM3-1.7B` at the pinned revision with remote code trusted. It renders prompts through the model's chat template with thinking disabled. Device and dtype rules are the same as for d1.
+- [x] Option-ID scoring:
   - `choice` options are presented as letters (up to 26 options).
   - `noul` is scored on yes/no.
   - `score` is scored on the level numbers.
   - Each Decision costs one forward pass, is normalised over the Label set and is mapped back to Labels.
   - More than 26 `choice` options returns a 4xx.
-- [ ] Model id, revision and chat-template options are configuration, so another ≤ 3B Chat model can be swapped in without code changes.
-- [ ] HTTP-contract tests with a fake LM backend (fixed next-token logits) cover all three Question types:
+- [x] Model id, revision and chat-template options are configuration, so another ≤ 3B Chat model can be swapped in without code changes.
+- [x] HTTP-contract tests with a fake LM backend (fixed next-token logits) cover all three Question types:
   - the argmax and the letter-to-Label mapping;
   - normalisation, with the Distribution summing to 1;
   - the error on more than 26 options.
-- [ ] `real_model` tests with the real LFM3-1.7B:
+- [x] `real_model` tests with the real LFM3-1.7B:
   - every Option ID is a single token at the exact position scored;
   - one public Task of each type is answered validly.
-- [ ] The README says how to choose the Decider.
+- [x] The README says how to choose the Decider.
+
+## Comments
+
+- 2026-11-05 (implement-spec): Merged in 469a7f8. Option IDs follow the empty think block with no leading space; `noul` pools Yes/yes and No/no; the 26-option cap is a wire-level 422 for every Decider. Control-token strings in message content are read as text since the review fixes (ce0131c). Integration branch `local-jev-v1`; code-review fixes merged in ce0131c and 2338b2f.

@@ -4,20 +4,24 @@
 
 **Blocked by:** 02 (d1 answers `noul` and `score`; bad requests get a clear 4xx), 04 (jevbench runner)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Calibration in the server:
+- [x] Calibration in the server:
   - Every Decider's raw Distribution goes through per-Question-type temperature scaling: log-probabilities are scaled by 1/T and renormalised.
   - Calibration is loaded at server start for the active Decider only, and Deciders never share it.
   - With no calibration, Distributions are unchanged.
-- [ ] `local-jev calibrate` reads a bench run's raw per-Task Distributions and expected Labels, then:
+- [x] `local-jev calibrate` reads a bench run's raw per-Task Distributions and expected Labels, then:
   - fits T for each Question type by minimising negative log-likelihood;
   - reports 5-fold cross-validated Brier and ECE before and after, with Accuracy shown unchanged;
   - writes the calibration for that Decider.
-- [ ] Tests at the calibration-fitter seam, using synthetic data:
+- [x] Tests at the calibration-fitter seam, using synthetic data:
   - over-confident data yields T > 1 and a lower Brier;
   - already-calibrated data yields T ≈ 1;
   - the argmax never changes;
   - the cross-validation report is produced.
-- [ ] An HTTP-contract test shows that a loaded calibration changes the served Distribution as expected.
-- [ ] The README has a calibration section.
+- [x] An HTTP-contract test shows that a loaded calibration changes the served Distribution as expected.
+- [x] The README has a calibration section.
+
+## Comments
+
+- 2026-11-05 (implement-spec): Merged in 5d91b60. Calibrations live in src/local_jev/calibrations/<decider>.json, tied to model and revision; `calibrate` refuses a run that was served calibrated. Fitted calibrations committed with ticket 12. Integration branch `local-jev-v1`; code-review fixes merged in ce0131c and 2338b2f.

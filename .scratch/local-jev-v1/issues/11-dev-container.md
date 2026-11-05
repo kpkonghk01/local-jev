@@ -4,16 +4,20 @@
 
 **Blocked by:** 10 (Docker image and compose)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A dev container configuration:
+- [x] A dev container configuration:
   - built from the Dockerfile's `dev` target;
   - uses the GPU when the host has one and works without it;
   - shares the Hugging Face cache volume with compose;
   - runs the uv sync on create;
   - recommends the Python and Ruff editor extensions.
-- [ ] Inside the container on the Mac (CPU):
+- [x] Inside the container on the Mac (CPU):
   - the fast test tiers pass;
   - the `real_model` tier passes;
   - either Decider can be served and benchmarked.
-- [ ] The README has a dev-container section. It notes that MPS is only available natively, not in the container.
+- [x] The README has a dev-container section. It notes that MPS is only available natively, not in the container.
+
+## Comments
+
+- 2026-11-05 (implement-spec): Merged in 82063a6. Verified by reproducing the devcontainer config with plain docker (no devcontainer CLI): fast and real_model tiers pass on CPU, and both Deciders were served and benchmarked. GPU path unverified. Integration branch `local-jev-v1`; code-review fixes merged in ce0131c and 2338b2f.

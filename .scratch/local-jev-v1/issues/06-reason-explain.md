@@ -4,15 +4,19 @@
 
 **Blocked by:** 05 (LFM3 Option-ID Decider)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] With `explain: true`, the LFM3 Decider returns a `reason` in each answer.
+- [x] With `explain: true`, the LFM3 Decider returns a `reason` in each answer.
   - The Reason is length-capped and written in the State's language (Traditional Chinese or English).
   - The Distribution is identical with and without `explain`.
-- [ ] With `explain: true`, the d1 Decider returns its normal answer without a `reason` and without an error.
-- [ ] `explain` defaults to false, and the bench runner never sets it.
-- [ ] HTTP-contract tests:
+- [x] With `explain: true`, the d1 Decider returns its normal answer without a `reason` and without an error.
+- [x] `explain` defaults to false, and the bench runner never sets it.
+- [x] HTTP-contract tests:
   - fake LM backend: the Reason is present, the Distribution is unchanged and the length cap is honoured;
   - fake d1: the response is 200 with no Reason.
-- [ ] A `real_model` test checks that a Traditional-Chinese State gets a Chinese Reason and an English State gets an English one. A loose check such as the presence of CJK characters is enough.
-- [ ] The README documents `explain` and states that d1 does not support it.
+- [x] A `real_model` test checks that a Traditional-Chinese State gets a Chinese Reason and an English State gets an English one. A loose check such as the presence of CJK characters is enough.
+- [x] The README documents `explain` and states that d1 does not support it.
+
+## Comments
+
+- 2026-11-05 (implement-spec): Merged in 3c5bf8c. Reason capped at 64 tokens; its language is chosen in code (rule tightened in ce0131c so all 462 public and zh-TW States pick correctly). Integration branch `local-jev-v1`; code-review fixes merged in ce0131c and 2338b2f.

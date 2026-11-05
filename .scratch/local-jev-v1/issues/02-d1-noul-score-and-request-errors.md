@@ -4,20 +4,24 @@
 
 **Blocked by:** 01 (d1 Decider answers a `choice` Question over `/v1/systemone`)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] A `noul` Question returns `type: "noul"` and `noul` set to P(yes), as a non-boolean number in [0, 1].
+- [x] A `noul` Question returns `type: "noul"` and `noul` set to P(yes), as a non-boolean number in [0, 1].
   - Criteria keyed `"true"`/`"false"` reach the model meaningfully.
-- [ ] A `score` Question with 2 to 10 levels (Criteria listed lowest first) returns:
+- [x] A `score` Question with 2 to 10 levels (Criteria listed lowest first) returns:
   - `type: "score"`;
   - `score` set to the argmax level;
   - `probabilities` keyed by level index strings (`"0"` to `"N-1"`) and summing to 1.
-- [ ] Unsupported Question types return a 4xx whose message names the type. These are `text`, `number`, `date`, `box`, `boxes` and multi-select `choice`.
-- [ ] Malformed requests return a 4xx with a clear message. Examples:
+- [x] Unsupported Question types return a 4xx whose message names the type. These are `text`, `number`, `date`, `box`, `boxes` and multi-select `choice`.
+- [x] Malformed requests return a 4xx with a clear message. Examples:
   - a missing State or missing Questions;
   - a `choice` Question without Criteria;
   - a `score` Question with fewer than 2 or more than 10 levels.
-- [ ] HTTP-contract tests with the fake d1 model cover both new types and every error case, against jevbench's acceptance rules.
-- [ ] A `real_model` test answers one public `noul` Task and one `score` Task validly.
+- [x] HTTP-contract tests with the fake d1 model cover both new types and every error case, against jevbench's acceptance rules.
+- [x] A `real_model` test answers one public `noul` Task and one `score` Task validly.
   - If d1's real answer fields or `score` key format differ from its model card, the mapping handles what the model actually returns.
   - Record what was observed as a short note in the test.
+
+## Comments
+
+- 2026-11-05 (implement-spec): Merged in 8913cbc. d1 returns `score` as a float median, so the wire `score` is the argmax of `probabilities` (keyed "0".."N-1"); observation recorded in tests/test_real_d1.py. Refusals are 422 with a one-line `detail`. Integration branch `local-jev-v1`; code-review fixes merged in ce0131c and 2338b2f.
