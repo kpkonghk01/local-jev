@@ -49,7 +49,8 @@ class D1Decider:
         self._model = model
         self.runtime = Runtime(decider="d1", model=model_id, revision=revision, device=device)
 
-    def decide(self, state: State, question: Question) -> Decision:
+    def decide(self, state: State, question: Question, explain: bool = False) -> Decision:
+        """d1 cannot write text (ADR-0003), so `explain` is ignored: no Reason, and no error."""
         # One Question per call: d1 packs a call's questions into one sequence, so each answer would
         # shift with the other Questions in the request.
         out = self._model.system_one(state, {_NAME: _to_d1(question)})

@@ -42,6 +42,7 @@ uv run local-jev serve --decider lfm3    # 或 --decider d1；預設聽 127.0.0.
 | Model | `LiquidAI/LFM3-1.7B`，Chat model | `LiquidAI/d1-2B`，Decision model |
 | 怎麼得到 Distribution | Option-ID scoring：`choice` 的選項依 Criteria 送來的順序標成 A–Z，`noul` 讀 yes/no（`Yes`/`yes`、`No`/`no` 合併計算），`score` 讀等級數字 0–9；在 Label set 上正規化 | d1 自己的 decision head |
 | 每個 Decision 的成本 | 一次 forward pass，不生成任何 token | 一次 forward pass |
+| Reason（`explain`） | 支援，見下方「要求 Reason」 | 不支援：照常回答，不帶 `reason`，也不報錯 |
 | MPS 上的延遲（M3 Pro） | 每個 Decision 約 115–240 ms（prompt 80–530 tokens） | 約 65–120 ms（prompt 約 65–75 tokens） |
 | 記憶體（MPS bf16，driver） | 約 4.1 GB | 約 5.4 GB |
 
@@ -100,7 +101,7 @@ curl -s http://127.0.0.1:8000/v1/systemone \
              "total_ms": 98.512, "decider_ms": 97.904}}
 ```
 
-- `usage`：所有 Question 加總的 token 數。兩個 Decider 都只讀 prompt 不生成，所以 `output_tokens` 一律是 0。
+- `usage`：所有 Question 加總的 token 數。沒有要求 Reason 時，兩個 Decider 都只讀 prompt 不生成，所以 `output_tokens` 是 0；`lfm3` 寫 Reason 時，`output_tokens` 是 Reason 的 token 數，`input_tokens` 也加上寫 Reason 時另外讀的 prompt。
 - `timing`：server 自己量的時間（毫秒）。`total_ms` 從解析完請求到產生回應為止（包含等前一個請求的時間），`decider_ms` 是其中花在 Decider 上的部分。拿來跟 client 端的 wall-clock 對照，就能分出網路與 client 的額外開銷。
 - `runtime`：同樣的時間，再加上 Decider 名稱、model id、revision 與 device（`cuda`、`mps` 或 `cpu`）。jevbench 會把回應頂層的 `runtime` 原樣抄進 `results.jsonl` 的每一筆紀錄，所以每筆結果都帶著它是在什麼硬體上跑的。
 
@@ -115,6 +116,23 @@ curl -s http://127.0.0.1:8000/v1/systemone \
 | `score` | 2 到 10 個等級說明的 list，由低到高 | `{"type": "score", "score": <最可能的等級>, "probabilities": {"0": …, "1": …}}` |
 
 `score` 的 `probabilities` 以等級 index 字串（`"0"` 到 `"N-1"`）為 key。d1 自己的 `score` 欄位是中位數等級，不一定是最可能的等級，所以不採用。
+
+### 要求 Reason（`explain`）
+
+想知道某個 Decision 為什麼這樣判斷時（例如在看自己的資料），在請求裡加上 `"explain": true`，`lfm3` 會在每個答案裡多一個 `reason` 欄位：
+
+```json
+{"answers": {"decision": {"type": "choice", "choice": "track_order",
+                          "probabilities": {"track_order": 0.99999, "…": 0.0},
+                          "reason": "這位使用者想知道包裹的當前位置與預計送達時間，因此屬於 **track_order** 意圖。"}}}
+```
+
+- `explain` 是我們對 wire format 的擴充，預設 `false`，只接受 JSON 的 `true`/`false`（`"yes"`、`1` 之類會回 422）。jevbench 的 `typesafe` adapter 不會送它，benchmark 也一律不開，所以 benchmark 的延遲不受影響。
+- Reason 在 Distribution 算完之後才生成：把同一個 State 與 Question、加上已經選定的最可能 Label 交給 model，請它用一句話說明理由。所以有沒有要求 Reason，`probabilities`、`choice`、`noul`、`score` 都完全一樣。
+- Reason 用 State 的語言寫：State 以中文字為主時用繁體中文（台灣用語），否則用英文。Question 的 instructions 是英文也一樣。
+- 長度上限 64 個 token（中文約一字一個 token），寫到 model 的回合結束或上限就停；碰到上限時句子可能被截斷。實測一句話約 27–35 個 token，在 M3 Pro 的 MPS 上每個 Reason 約 1.5 秒，容器裡的 CPU 會慢很多。
+- Reason 是 model 生成的純文字，server 建回應時做 JSON escape，引號、換行之類的字元不會弄壞回應。
+- **`d1` 不支援 Reason**：d1 是 Decision model，不會生成文字（見 ADR-0003）。對 `d1` 送 `"explain": true` 會照常回答，只是沒有 `reason` 欄位，也不會報錯。
 
 ### 錯誤的請求回 422
 

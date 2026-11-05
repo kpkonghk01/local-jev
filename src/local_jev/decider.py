@@ -73,10 +73,14 @@ class Usage:
 
 @dataclass(frozen=True)
 class Decision:
-    """One answer to one Question: the Decider's raw Distribution over the Question's Label set."""
+    """One answer to one Question: the Decider's raw Distribution over the Question's Label set.
+
+    `reason` is the Reason, when one was asked for and the Decider can write one.
+    """
 
     distribution: Mapping[Label, float]
     usage: Usage = Usage()
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,4 +97,7 @@ class Decider(Protocol):
     @property
     def runtime(self) -> Runtime: ...
 
-    def decide(self, state: State, question: Question) -> Decision: ...
+    def decide(self, state: State, question: Question, explain: bool = False) -> Decision:
+        """With `explain`, a Decider that can write text adds a Reason; one that cannot ignores it.
+        Asking for a Reason never changes the Distribution."""
+        ...
