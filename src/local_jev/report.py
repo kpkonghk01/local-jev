@@ -15,6 +15,7 @@ from typing import Literal
 
 from local_jev.bench import JEVBENCH_COMMIT
 from local_jev.calibration import REPORT_FILE
+from local_jev.decider import Pinned
 from local_jev.figures import number, percent
 from local_jev.files import create_new, read_json, read_jsonl, utc_stamp
 
@@ -30,10 +31,8 @@ PUBLIC_TASKS = 231
 class Row:
     """One line of the results table: one run, or the cross-validated calibration of one run."""
 
-    decider_name: str
-    """The Decider as `serve --decider` names it."""
-    decider: str
-    """The Decider with its model and revision."""
+    pinned: Pinned
+    """The Decider that answered, with its model and revision."""
     kind: Literal["raw", "cross-validated", "served calibrated"]
     calibration: str
     on_public_tasks: bool
@@ -231,10 +230,14 @@ _VERDICT_INTRO = (
 )
 
 
+type Status = Literal["pass", "fail", "pending"]
+"""A criterion's status; pending: not decided until more runs are in."""
+
+
 @dataclass(frozen=True)
 class Checked:
     criterion: str
-    status: Literal["pass", "fail", "pending"]
+    status: Status
     evidence: list[str]
 
 
@@ -258,10 +261,10 @@ def _on_gpu(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
     on `cuda`, not on which GPU.
     """
     criterion = f"3b. Server-side p50 ≤ {GPU_P50_BAR_MS:.0f} ms on an L4-class GPU"
-    chosen = _default_decider(public, deciders)
-    on_cuda = [r for r in _timed_on(public, "cuda") if chosen and r.decider == chosen.decider]
+    chosen = _default_decider(public)
+    on_cuda = [r for r in _timed_on(public, "cuda") if chosen and r.pinned == chosen.pinned]
     if not on_cuda:
-        who = chosen.decider if chosen else "the default Decider"
+        who = chosen.pinned if chosen else "the default Decider"
         return Checked(
             criterion, "pending", [f"no run of {who} on cuda on the {PUBLIC_TASKS} public Tasks"]
         )
@@ -276,7 +279,7 @@ def _on_gpu(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
 def _recorded_on_mps(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
     """The spec sets no bar on the Mac: each Decider's server-side p50 on MPS is recorded."""
     on_mps = _timed_on(public, "mps")
-    missing = [d for d in deciders if not any(r.decider_name == d for r in on_mps)]
+    missing = [d for d in deciders if not any(r.pinned.decider == d for r in on_mps)]
     return Checked(
         "3a. Server-side p50 on the Mac (MPS) is recorded for every Decider",
         "pending" if missing else "pass",
@@ -295,7 +298,7 @@ def _timed_on(public: Sequence[Row], device: str) -> list[Row]:
 
 
 def _server_p50(r: Row) -> str:
-    return f"{r.decider}: server p50 {r.server_ms[0]:.0f} ms ({r.run})"
+    return f"{r.pinned}: server p50 {r.server_ms[0]:.0f} ms ({r.run})"
 
 
 ACCURACY_BAR, BRIER_BAR = 0.80, 0.20
@@ -305,7 +308,7 @@ ACCURACY_BAR, BRIER_BAR = 0.80, 0.20
 class Standing:
     """How one Decider (at one model and revision) did over its runs on the public Tasks."""
 
-    decider: str
+    pinned: Pinned
     rows: list[Row]
 
     @property
@@ -326,7 +329,7 @@ class Standing:
         return min(scored, key=lambda r: (not _meets_bar(r), r.brier), default=None)
 
     @property
-    def status(self) -> Literal["pass", "fail", "pending"]:
+    def status(self) -> Status:
         """Whether it reaches Accuracy and Brier bars.
 
         Calibration never changes the argmax, so below the Accuracy bar it fails whether calibrated
@@ -354,10 +357,10 @@ def _meets_bar(r: Row) -> bool:
 
 
 def _standings(public: Sequence[Row]) -> list[Standing]:
-    grouped: dict[str, list[Row]] = {}
+    grouped: dict[Pinned, list[Row]] = {}
     for r in public:
-        grouped.setdefault(r.decider, []).append(r)
-    return [Standing(decider, rows) for decider, rows in grouped.items()]
+        grouped.setdefault(r.pinned, []).append(r)
+    return [Standing(pinned, rows) for pinned, rows in grouped.items()]
 
 
 def _accuracy_and_brier(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
@@ -372,11 +375,11 @@ def _accuracy_and_brier(public: Sequence[Row], deciders: Sequence[str]) -> Check
     return Checked(
         f"2. The best Decider reaches Accuracy ≥ {ACCURACY_BAR:.0%} with Brier ≤ {BRIER_BAR:.2f}",
         status,
-        [f"{s.decider}: {s.figures}" for s in standings] + [_no_run(d) for d in missing],
+        [f"{s.pinned}: {s.figures}" for s in standings] + [_no_run(d) for d in missing],
     )
 
 
-def _default_decider(public: Sequence[Row], deciders: Sequence[str]) -> Standing | None:
+def _default_decider(public: Sequence[Row]) -> Standing | None:
     """The Decider to serve by default: of those with only valid answers on the public Tasks,
     one reaching both bars of criterion 2, then the most accurate, then the lowest Brier."""
     return max(
@@ -391,12 +394,12 @@ def _brier_of(s: Standing) -> float:
 
 
 def _default_decider_line(public: Sequence[Row], deciders: Sequence[str]) -> _Line:
-    chosen = _default_decider(public, deciders)
+    chosen = _default_decider(public)
     if chosen is None:
         return _Line("Default Decider: none yet", f": no run on the {PUBLIC_TASKS} public Tasks.")
     missing = _missing(public, deciders)
     return _Line(
-        f"Default Decider: {chosen.decider}",
+        f"Default Decider: {chosen.pinned}",
         (", provisional" if missing else "")
         + f": {chosen.figures}. Ranked on only valid answers, then reaching both bars of "
         "criterion 2, then Accuracy, then the lower Brier"
@@ -407,7 +410,7 @@ def _default_decider_line(public: Sequence[Row], deciders: Sequence[str]) -> _Li
 
 def _missing(public: Sequence[Row], deciders: Sequence[str]) -> list[str]:
     """The Deciders in `deciders` without a run on the public Tasks."""
-    return [d for d in deciders if not any(r.decider_name == d for r in public)]
+    return [d for d in deciders if not any(r.pinned.decider == d for r in public)]
 
 
 def _valid_answers(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
@@ -420,7 +423,7 @@ def _valid_answers(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
     return Checked(
         "1. Valid answers 100% for every Decider",
         status,
-        [f"{r.decider}: {percent(r.valid)} ({r.run})" for r in served]
+        [f"{r.pinned}: {percent(r.valid)} ({r.run})" for r in served]
         + [_no_run(d) for d in missing],
     )
 
@@ -511,8 +514,7 @@ def _rows(run: Path) -> list[Row]:
     served_calibration = server.get("calibration")
     language = _language(run, decisions)
     served = Row(
-        decider_name=server["decider"],
-        decider=_decider(server),
+        pinned=Pinned.of(server),
         kind="raw" if served_calibration is None else "served calibrated",
         calibration="raw" if served_calibration is None else "calibrated, served",
         on_public_tasks=(
@@ -550,10 +552,6 @@ def _rows(run: Path) -> list[Row]:
             )
         )
     return rows
-
-
-def _decider(server: dict) -> str:
-    return f"{server['decider']} {server['model']}@{server['revision'][:7]}"
 
 
 ENGLISH, TRADITIONAL_CHINESE = "English", "Traditional Chinese"
@@ -600,7 +598,7 @@ def _results_table(rows: Sequence[Row]) -> list[str]:
         RESULT_COLUMNS,
         [
             (
-                r.decider,
+                str(r.pinned),
                 r.calibration,
                 r.language,
                 r.task_set,

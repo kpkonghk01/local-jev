@@ -34,7 +34,8 @@ class D1Model(Protocol):
     def system_one(self, state: Any, questions: dict[str, dict]) -> dict: ...
 
 
-_NAME = "decision"
+_QUESTION_NAME = "decision"
+"""The name each Question is passed to d1 under, one per call."""
 
 
 class D1Decider:
@@ -62,8 +63,8 @@ class D1Decider:
         d1_question = _to_d1(question, self._control_tokens.defuse)
         # One Question per call: d1 packs a call's questions into one sequence, so each answer would
         # shift with the other Questions in the request.
-        out = self._model.system_one(state, {_NAME: d1_question})
-        answer = out["answers"][_NAME]
+        out = self._model.system_one(state, {_QUESTION_NAME: d1_question})
+        answer = out["answers"][_QUESTION_NAME]
         return Decision(distribution=_distribution(question, answer), usage=_usage(out))
 
 

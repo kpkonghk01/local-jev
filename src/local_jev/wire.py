@@ -194,7 +194,7 @@ def create_app(
 
         @app.middleware("http")
         async def require_token(request: Request, call_next):
-            if request.url.path == "/health" or _bears(request, token):
+            if request.url.path == "/health" or _carries_token(request, token):
                 return await call_next(request)
             return JSONResponse(
                 {"detail": "a missing or wrong bearer token"},
@@ -259,7 +259,8 @@ def create_app(
     return app
 
 
-def _bears(request: Request, token: str) -> bool:
+def _carries_token(request: Request, token: str) -> bool:
+    """Whether `request` carries `token` as `Authorization: Bearer <token>`."""
     scheme, _, credentials = request.headers.get("authorization", "").partition(" ")
     return scheme.lower() == "bearer" and hmac.compare_digest(
         credentials.strip().encode(), token.encode()
@@ -288,10 +289,11 @@ async def _refuse_malformed(request: Request, exc: RequestValidationError) -> JS
     jevbench counts a 422 as a wrong answer without counting it towards the consecutive failures
     that stop its run.
     """
-    return JSONResponse({"detail": "; ".join(map(_say, exc.errors()))}, status_code=422)
+    return JSONResponse({"detail": "; ".join(map(_described, exc.errors()))}, status_code=422)
 
 
-def _say(error: Mapping) -> str:
+def _described(error: Mapping) -> str:
+    """One of pydantic's validation errors as a plain sentence: where, and what is wrong."""
     if error["type"] == "json_invalid":
         return f"the request body is not valid JSON ({error['ctx']['error']} at {error['loc'][-1]})"
     where = ".".join(str(part) for part in error["loc"][1:])  # without the leading "body"

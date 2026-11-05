@@ -19,7 +19,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from local_jev.decider import Label, Runtime
+from local_jev.decider import Label, Pinned, Runtime
 from local_jev.distribution import argmax, normalised, softmax
 from local_jev.files import read_json, read_jsonl, write_json
 
@@ -69,19 +69,17 @@ def load_calibration(directory: Path, runtime: Runtime) -> Calibration | None:
         return None
     try:
         written = read_json(path)
-        fitted_for = (written["decider"], written["model"], written["revision"])
+        fitted_for = Pinned.of(written)
         temperatures = _temperatures(written["temperatures"])
         fitted_from = (written.get("fitted_from") or {}).get("run")
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise ValueError(f"{path} is not a calibration: {e}") from e
-    if fitted_for != (runtime.decider, runtime.model, runtime.revision):
+    if fitted_for != runtime.pinned:
         log.warning(
-            "%s was fitted for %s %s@%s, not %s %s@%s: serving raw Distributions",
+            "%s was fitted for %s, not %s: serving raw Distributions",
             path,
-            *fitted_for,
-            runtime.decider,
-            runtime.model,
-            runtime.revision,
+            fitted_for,
+            runtime.pinned,
         )
         return None
     log.info("calibrating with %s: %s", path, temperatures)
@@ -198,11 +196,10 @@ def _served_raw_by_one_decider(run: Path, lines: Sequence[dict]) -> dict:
                 "are fitted on raw Distributions only: serve with --no-calibration, bench again "
                 "and calibrate that run"
             )
-    deciders = {(r.get("decider"), r.get("model"), r.get("revision")) for r in runtimes}
-    if len(deciders) > 1:
-        raise CalibrationRefused(
-            f"{run} was served by more than one Decider: {', '.join(map(str, sorted(deciders)))}"
-        )
+    served_by = {Pinned.of(r) for r in runtimes}
+    if len(served_by) > 1:
+        names = ", ".join(sorted(map(str, served_by)))
+        raise CalibrationRefused(f"{run} was served by more than one Decider: {names}")
     return runtimes[0]
 
 
