@@ -1,4 +1,8 @@
-"""`/v1/systemone` answers through the LFM3 Option-ID Decider (fake LM backend, fixed logits)."""
+"""`/v1/systemone` answers through the LFM3 Option-ID Decider (fake LM backend, fixed logits).
+
+The fake's next-token probabilities stand in for the model's; the Decider's Distribution must be
+exactly those probabilities, restricted to the Question's Option IDs and normalised.
+"""
 
 import pytest
 from harness import jevbench
