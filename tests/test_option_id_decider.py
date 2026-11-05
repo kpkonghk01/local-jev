@@ -196,4 +196,5 @@ def test_runtime_says_the_decider_runs_lfm3_at_its_pinned_revision():
         "model": "LiquidAI/LFM3-1.7B",
         "revision": "0dc4268b561499c648c7ba7c9466bf3d8d01517a",
         "device": "mps",
+        "calibration": None,
     }

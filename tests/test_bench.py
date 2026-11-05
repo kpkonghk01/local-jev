@@ -153,6 +153,7 @@ def test_a_run_records_the_decider_model_revision_and_hardware_the_server_report
         "model": "LiquidAI/d1-2B",
         "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1",
         "device": "cpu",
+        "calibration": None,
     }
     assert record["jevbench"] == {
         "url": "https://github.com/fstandhartinger/jevbench.git",
@@ -185,10 +186,33 @@ def test_a_run_ends_by_saying_where_it_is_and_what_it_scored(tmp_path, capsys):
     said = capsys.readouterr().out
 
     assert str(run) in said
-    assert "d1 LiquidAI/d1-2B@652f920 on cpu" in said
+    assert "d1 LiquidAI/d1-2B@652f920 on cpu, raw," in said
     # easy-intent-00 and -01 expect track_order and cancel_order, not the fake's (alphabetically
     # first) billing_question; of easy-fact-00 and -01, only the first expects the fake's yes.
     assert "4 Tasks: Valid 100.0%, Accuracy 25.0%" in said
+
+
+def test_a_run_against_a_calibrated_server_records_and_says_so(tmp_path, capsys):
+    calibrations = tmp_path / "calibrations"
+    calibrations.mkdir()
+    d1_calibration = {
+        "decider": "d1",
+        "model": "LiquidAI/d1-2B",
+        "revision": "652f920e544ea37f81e4b0ce89b81d4ed0da90b1",
+        "temperatures": {"choice": 1.5},
+        "fitted_from": {"run": "an-earlier-run"},
+    }
+    (calibrations / "d1.json").write_text(json.dumps(d1_calibration))
+    with listening(_fake_d1(), calibrations=calibrations) as endpoint:
+        run = _bench(endpoint, tmp_path / "runs", "--limit", "2")
+    said = capsys.readouterr().out
+    record = json.loads((run / "run.json").read_text())
+
+    assert record["server"]["calibration"] == {
+        "temperatures": {"choice": 1.5},
+        "fitted_from": "an-earlier-run",
+    }
+    assert "d1 LiquidAI/d1-2B@652f920 on cpu, calibrated," in said
 
 
 JEVBENCH_COMMIT = "609a664e81f46e03731600bd7bd9f1b7a61257c5"
