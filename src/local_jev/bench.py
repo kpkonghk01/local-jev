@@ -192,7 +192,8 @@ def headline(run: Path) -> str:
     summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
     server = record["server"]
     who = (
-        f"{server['decider']} {server['model']}@{server['revision'][:7]} on {server['device']}"
+        f"{server['decider']} {server['model']}@{server['revision'][:7]} on {server['device']}, "
+        + ("calibrated" if server.get("calibration") else "raw")
         if server
         else "an unidentified server"
     )
@@ -223,7 +224,8 @@ def _write_decisions(path: Path, tasks: list[_Task], results: list[dict]) -> Non
     `task_id`; `task_set` (the part: easy, original, hard); `question_type`; `labels` (the Label
     set); `expected` (a Label, always a string); `distribution` (as served, keyed by Label, or
     null); jevbench's `valid`, `predicted` and `correct`; `latency_s` (client); and the answer's
-    `runtime` (Decider, model, revision, device, server `total_ms` and `decider_ms`).
+    `runtime` (Decider, model, revision, device, the `calibration` applied or null, server
+    `total_ms` and `decider_ms`).
     """
     by_id = {t.task["id"]: t for t in tasks}
     with path.open("x", encoding="utf-8") as out:
@@ -282,10 +284,14 @@ def _now() -> str:
 
 
 def _server(results: list[dict]) -> dict | None:
-    """What the server ran, from the `runtime` its answers carry; None if no answer carried one."""
+    """What the server ran, from the `runtime` its answers carry; None if no answer carried one.
+
+    `calibration` is the calibration the server applied, null when it served raw Distributions.
+    """
     for result in results:
         if runtime := result.get("runtime"):
-            return {field.name: runtime.get(field.name) for field in fields(Runtime)}
+            ran = {field.name: runtime.get(field.name) for field in fields(Runtime)}
+            return {**ran, "calibration": runtime.get("calibration")}
     return None
 
 

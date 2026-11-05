@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import AfterValidator, BaseModel, JsonValue, PlainValidator, StrictBool
 
+from local_jev.calibration import Calibration, load_calibration
 from local_jev.decider import (
     ChoiceQuestion,
     Decider,
@@ -140,11 +142,14 @@ class SystemOneRequest(BaseModel):
 
 
 class _DeciderLoader:
-    """Loads the Decider in the background, so the server can report health while it loads."""
+    """Loads the Decider, then its calibration, in the background, so the server can report health
+    while it loads."""
 
-    def __init__(self, load_decider: Callable[[], Decider]):
+    def __init__(self, load_decider: Callable[[], Decider], calibrations_dir: Path | None):
         self._load_decider = load_decider
+        self._calibrations_dir = calibrations_dir
         self.decider: Decider | None = None
+        self.calibration: Calibration | None = None
         self.error: str | None = None
 
     def start(self) -> None:
@@ -152,19 +157,29 @@ class _DeciderLoader:
 
     def _load(self) -> None:
         try:
-            self.decider = self._load_decider()
+            decider = self._load_decider()
+            if self._calibrations_dir is not None:
+                self.calibration = load_calibration(self._calibrations_dir, decider.runtime)
+            self.decider = decider  # last: once it is set, requests are answered
         except Exception as e:
-            log.exception("the Decider failed to load")
+            log.exception("the Decider or its calibration failed to load")
             self.error = f"{type(e).__name__}: {e}"
 
 
-def create_app(load_decider: Callable[[], Decider], token: str | None = None) -> FastAPI:
+def create_app(
+    load_decider: Callable[[], Decider],
+    token: str | None = None,
+    calibrations_dir: Path | None = None,
+) -> FastAPI:
     """The server, answering with the Decider that `load_decider` returns once it has loaded.
 
     With a `token`, every request but `/health` must carry it as `Authorization: Bearer <token>`.
     Without one, any Authorization header (jevbench always sends one) or none is accepted.
+
+    With a `calibrations_dir`, the Decider's calibration there (if one was fitted for its model and
+    revision) is applied to every Distribution. Without one, Distributions are served raw.
     """
-    loader = _DeciderLoader(load_decider)
+    loader = _DeciderLoader(load_decider, calibrations_dir)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -200,7 +215,7 @@ def create_app(load_decider: Callable[[], Decider], token: str | None = None) ->
     @app.post("/v1/systemone")
     def systemone(request: SystemOneRequest):
         started = time.perf_counter()
-        decider = loader.decider
+        decider, calibration = loader.decider, loader.calibration
         if decider is None:
             raise HTTPException(503, "the Decider is not ready; see /health")
         answers = {}
@@ -219,6 +234,8 @@ def create_app(load_decider: Callable[[], Decider], token: str | None = None) ->
                     raise HTTPException(
                         500, f"the Decider's answer to {name!r} is unusable: {e}"
                     ) from e
+                if calibration is not None:
+                    distribution = calibration.apply(question.type, distribution)
                 answers[name] = _answer(question, distribution)
                 if decision.reason is not None:
                     answers[name]["reason"] = decision.reason
@@ -230,7 +247,12 @@ def create_app(load_decider: Callable[[], Decider], token: str | None = None) ->
             "model": request.model,
             "timing": timing,
             # jevbench copies `runtime` into every results record, so its records carry these too.
-            "runtime": {**asdict(decider.runtime), **timing},
+            # `calibration` is null when the Distributions are served raw.
+            "runtime": {
+                **asdict(decider.runtime),
+                "calibration": None if calibration is None else calibration.describe(),
+                **timing,
+            },
         }
 
     return app
