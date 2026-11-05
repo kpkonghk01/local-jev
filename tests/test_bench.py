@@ -98,6 +98,8 @@ def test_a_run_against_a_local_server_reserves_and_charges_nothing(smoke_run):
         ("original", {"original": 72}),
         ("hard", {"hard": 111}),
         ("public", {"easy": 48, "original": 72, "hard": 111}),
+        ("zh-tw-hard", {"zh-tw-hard": 111}),
+        ("zh-tw", {"zh-tw-easy": 48, "zh-tw-original": 72, "zh-tw-hard": 111}),
     ],
 )
 def test_a_task_set_runs_every_task_in_it(tmp_path, task_set, tasks_per_part):
@@ -107,6 +109,27 @@ def test_a_task_set_runs_every_task_in_it(tmp_path, task_set, tasks_per_part):
 
     assert Counter(d["task_set"] for d in decisions) == tasks_per_part
     assert all(d["valid"] for d in decisions)
+
+
+def test_the_traditional_chinese_set_sends_the_translated_state_with_the_english_question(
+    tmp_path,
+):
+    with listening(_fake_d1()) as endpoint:
+        run = _bench(endpoint, tmp_path, "--task-set", "zh-tw-easy", "--limit", "2")
+    sent = [json.loads(raw.read_text("utf-8"))["request"] for raw in (run / "raw").iterdir()]
+
+    # easy-intent-00 and easy-fact-00: the first choice and the first noul Task of easy
+    assert {(r["state"], r["questions"]["decision"]["instructions"]) for r in sent} == {
+        (
+            "我的包裹在哪裡？我上週就訂了，到現在還沒送到。",
+            "Which intent does the user's message express?",
+        ),
+        (
+            "訂單 #1182。狀態：已於 9 月 3 日出貨。物流業者：DHL。",
+            "Has the order been shipped? Answer strictly from the facts stated in the text.",
+        ),
+    }
+    assert [d["task_set"] for d in _jsonl(run / "decisions.jsonl")] == ["zh-tw-easy"] * 2
 
 
 def test_a_limited_run_takes_tasks_from_every_part_of_the_set_and_every_question_type(smoke_run):
