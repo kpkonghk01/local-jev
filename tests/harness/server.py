@@ -14,23 +14,28 @@ from local_jev.wire import create_app
 
 
 @contextmanager
-def starting(load_decider: Callable[[], Decider]) -> Iterator[TestClient]:
+def starting(load_decider: Callable[[], Decider], token: str | None = None) -> Iterator[TestClient]:
     """A server that has just started; its Decider may still be loading."""
-    with TestClient(create_app(load_decider)) as client:
+    with TestClient(create_app(load_decider, token=token)) as client:
         yield client
 
 
 @contextmanager
-def serving(load_decider: Callable[[], Decider], ready_within: float = 5.0) -> Iterator[TestClient]:
-    """A running server whose Decider comes from `load_decider`, once its health reports ready."""
-    with starting(load_decider) as client:
+def serving(
+    load_decider: Callable[[], Decider], ready_within: float = 5.0, token: str | None = None
+) -> Iterator[TestClient]:
+    """A running server whose Decider comes from `load_decider`, once its health reports ready.
+
+    With a `token`, the server requires it as a bearer token.
+    """
+    with starting(load_decider, token=token) as client:
         wait_until_ready(client, ready_within)
         yield client
 
 
-def serving_d1(model) -> Iterator[TestClient]:
-    """A running server with the d1 Decider over `model` (a fake or the real d1)."""
-    return serving(lambda: D1Decider(model))
+def serving_d1(model, device: str = "cpu", token: str | None = None) -> Iterator[TestClient]:
+    """A running server with the d1 Decider over `model` (a fake or the real d1) on `device`."""
+    return serving(lambda: D1Decider(model, device=device), token=token)
 
 
 def wait_until_ready(client: TestClient, within: float) -> None:

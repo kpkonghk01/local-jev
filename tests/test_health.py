@@ -13,7 +13,7 @@ from local_jev.d1 import D1Decider
 def _d1_loading_until(released: threading.Event):
     def load():
         released.wait(timeout=5)
-        return D1Decider(FakeD1Model.answering(d1_choice({"a": 0.6, "b": 0.4})))
+        return D1Decider(FakeD1Model.answering(d1_choice({"a": 0.6, "b": 0.4})), device="cpu")
 
     return load
 
