@@ -18,6 +18,7 @@ from harness.server import listening
 
 from local_jev.cli import main
 from local_jev.d1 import D1Decider
+from local_jev.files import read_jsonl
 from local_jev.option_id import OptionIDDecider
 
 PROJECT_CACHE = Path(__file__).parents[1] / ".cache"
@@ -51,10 +52,6 @@ def _bench(endpoint: str, runs_dir: Path, *args: str) -> Path:
     return run
 
 
-def _jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
-
-
 @pytest.fixture(scope="module")
 def smoke_run(tmp_path_factory) -> Path:
     """One 10-Task run against a server with no token, as a fresh shell would run it."""
@@ -67,7 +64,7 @@ def smoke_run(tmp_path_factory) -> Path:
 
 
 def test_a_run_keeps_jevbench_results_raw_evidence_ledger_and_summary(smoke_run):
-    results = _jsonl(smoke_run / "results.jsonl")
+    results = read_jsonl(smoke_run / "results.jsonl")
     summary = json.loads((smoke_run / "summary.json").read_text())
 
     assert len(results) == 10
@@ -91,7 +88,7 @@ def test_a_run_keeps_jevbenchs_public_export_of_its_summary(smoke_run):
 def test_a_run_against_a_local_server_reserves_and_charges_nothing(smoke_run):
     """Unpriced, jevbench would hold $0.02 per Task against its $15 cap, and cost would be null."""
     summary = json.loads((smoke_run / "summary.json").read_text())
-    ledger = _jsonl(smoke_run / "ledger.jsonl")
+    ledger = read_jsonl(smoke_run / "ledger.jsonl")
 
     assert summary["ledger_charged_usd"] == 0.0
     assert summary["price_per_1000_decisions_usd"] == 0.0
@@ -112,7 +109,7 @@ def test_a_run_against_a_local_server_reserves_and_charges_nothing(smoke_run):
 def test_a_task_set_runs_every_task_in_it(tmp_path, task_set, tasks_per_part):
     with listening(_fake_d1()) as endpoint:
         run = _bench(endpoint, tmp_path, "--task-set", task_set)
-    decisions = _jsonl(run / "decisions.jsonl")
+    decisions = read_jsonl(run / "decisions.jsonl")
 
     assert Counter(d["task_set"] for d in decisions) == tasks_per_part
     assert all(d["valid"] for d in decisions)
@@ -136,11 +133,11 @@ def test_the_traditional_chinese_set_sends_the_translated_state_with_the_english
             "Has the order been shipped? Answer strictly from the facts stated in the text.",
         ),
     }
-    assert [d["task_set"] for d in _jsonl(run / "decisions.jsonl")] == ["zh-tw-easy"] * 2
+    assert [d["task_set"] for d in read_jsonl(run / "decisions.jsonl")] == ["zh-tw-easy"] * 2
 
 
 def test_a_limited_run_takes_tasks_from_every_part_of_the_set_and_every_question_type(smoke_run):
-    tasks = _jsonl(smoke_run / "tasks.jsonl")
+    tasks = read_jsonl(smoke_run / "tasks.jsonl")
 
     assert len(tasks) == 10
     assert {t["question"]["type"] for t in tasks} == {"choice", "noul", "score"}
@@ -148,7 +145,7 @@ def test_a_limited_run_takes_tasks_from_every_part_of_the_set_and_every_question
 
 
 def test_a_run_keeps_each_tasks_served_distribution_beside_its_expected_label(smoke_run):
-    decisions = {d["task_id"]: d for d in _jsonl(smoke_run / "decisions.jsonl")}
+    decisions = {d["task_id"]: d for d in read_jsonl(smoke_run / "decisions.jsonl")}
     noul, score, choice = (
         decisions[i] for i in ("easy-fact-00", "original-ordinal-01-0", "easy-intent-00")
     )
@@ -170,7 +167,7 @@ def test_a_run_keeps_each_tasks_served_distribution_beside_its_expected_label(sm
 
 
 def test_each_kept_decision_carries_the_servers_runtime(smoke_run):
-    (decision, *_) = _jsonl(smoke_run / "decisions.jsonl")
+    (decision, *_) = read_jsonl(smoke_run / "decisions.jsonl")
 
     assert decision["runtime"]["device"] == "cpu"
     assert decision["runtime"]["decider_ms"] >= 0
@@ -198,7 +195,7 @@ def test_a_token_protected_server_gets_the_token_from_local_jev_token(tmp_path, 
     with listening(_fake_d1(), token="s3cret") as endpoint:
         run = _bench(endpoint, tmp_path, "--limit", "3")
 
-    assert [d["valid"] for d in _jsonl(run / "decisions.jsonl")] == [True, True, True]
+    assert [d["valid"] for d in read_jsonl(run / "decisions.jsonl")] == [True, True, True]
 
 
 def test_every_run_gets_a_new_directory_and_earlier_runs_are_kept(tmp_path):
@@ -209,7 +206,7 @@ def test_every_run_gets_a_new_directory_and_earlier_runs_are_kept(tmp_path):
 
     assert second != first
     assert (first / "results.jsonl").read_bytes() == kept
-    assert len(_jsonl(second / "results.jsonl")) == 2
+    assert len(read_jsonl(second / "results.jsonl")) == 2
 
 
 def test_a_run_ends_by_saying_where_it_is_and_what_it_scored(tmp_path, capsys):
@@ -278,7 +275,7 @@ def test_jevbench_is_fetched_at_the_pinned_commit_and_then_reused(
         run = _bench_with_cache(endpoint, tmp_path, cache)
 
     assert fetched == JEVBENCH_COMMIT
-    assert len(_jsonl(run / "results.jsonl")) == 2
+    assert len(read_jsonl(run / "results.jsonl")) == 2
 
 
 def test_a_run_records_the_mirror_jevbench_is_fetched_from(tmp_path, monkeypatch, jevbench_mirror):
@@ -304,7 +301,7 @@ def test_a_cached_checkout_at_another_commit_is_fetched_again(
         run = _bench_with_cache(endpoint, tmp_path, tmp_path / "cache")
 
     assert _head(stale) == JEVBENCH_COMMIT
-    assert len(_jsonl(run / "results.jsonl")) == 2
+    assert len(read_jsonl(run / "results.jsonl")) == 2
 
 
 def test_a_failed_fetch_says_so_and_starts_no_run(tmp_path, monkeypatch):
@@ -327,7 +324,7 @@ def test_by_default_runs_go_under_runs_and_jevbench_under_cache_in_the_current_d
         main(["bench", "--endpoint", endpoint, "--limit", "2"])
 
     (run,) = (tmp_path / "runs").iterdir()
-    assert len(_jsonl(run / "results.jsonl")) == 2
+    assert len(read_jsonl(run / "results.jsonl")) == 2
     assert _head(tmp_path / ".cache" / "jevbench" / JEVBENCH_COMMIT) == JEVBENCH_COMMIT
 
 
@@ -341,7 +338,7 @@ def test_a_run_waits_for_a_server_whose_decider_is_still_loading(tmp_path):
     with listening(slow_load) as endpoint:
         run = _bench(endpoint, tmp_path, "--limit", "3")
 
-    assert [d["valid"] for d in _jsonl(run / "decisions.jsonl")] == [True, True, True]
+    assert [d["valid"] for d in read_jsonl(run / "decisions.jsonl")] == [True, True, True]
 
 
 def test_no_run_starts_when_no_server_answers(tmp_path):
@@ -374,7 +371,7 @@ def test_a_run_jevbench_stops_early_fails_and_says_how_far_it_got(tmp_path):
 
     (run,) = tmp_path.iterdir()
     assert str(run) in str(stopped.value)
-    assert len(_jsonl(run / "results.jsonl")) == 3
+    assert len(read_jsonl(run / "results.jsonl")) == 3
 
 
 def test_a_run_never_asks_for_a_reason(tmp_path):
@@ -384,7 +381,7 @@ def test_a_run_never_asks_for_a_reason(tmp_path):
         run = _bench(endpoint, tmp_path, "--limit", "10")
     # jevbench keeps each Task's request and response as raw evidence.
     exchanges = [json.loads(raw.read_text()) for raw in (run / "raw").iterdir()]
-    results = _jsonl(run / "results.jsonl")
+    results = read_jsonl(run / "results.jsonl")
 
     assert len(exchanges) == 10
     assert not any(e["request"].get("explain") for e in exchanges)
