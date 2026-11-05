@@ -42,6 +42,29 @@ environments = [
     "sys_platform == 'linux' and platform_machine == 'aarch64'",
 ]
 
+# torch: CUDA 12.8 builds on the Linux GPU host, CPU builds in Linux arm64 containers, PyPI on the
+# Mac (its macOS wheels are the MPS-capable build). PyPI's Linux wheels would bring CUDA 13 on
+# aarch64 too, hence the explicit CPU index there. `uv lock`/`uv sync` have no `--torch-backend`.
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
