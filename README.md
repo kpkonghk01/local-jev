@@ -202,7 +202,7 @@ docker run --rm -p 127.0.0.1:8000:8000 -v local-jev_hf-cache:/data/hf local-jev:
 
 torch 依平台來自不同的 index（都鎖在 `uv.lock` 裡，版本都是 2.11.0）：linux/amd64 用 PyTorch 的 CUDA 12.8 index，linux/arm64 用 PyTorch 的 CPU index（PyPI 的 Linux wheel 在 arm64 上也會帶進 CUDA 13 的 library），Mac 用 PyPI（支援 MPS 的版本）。runtime image 在 linux/arm64 約 1.4 GB，在 linux/amd64 約 7.7 GB（CUDA library 佔了大部分）。
 
-另一個 target `dev` 是 dev container 用的：多了 dev 相依套件與 git，source 在執行時掛載到 `/app`。
+另一個 target `dev` 是 dev container 用的（見「在 dev container 裡開發」）：多了 dev 相依套件與 git，source 在執行時掛載到 `/app`。
 
 ### 在 Linux NVIDIA GPU host 上（未驗證）
 
@@ -214,6 +214,40 @@ docker compose -f compose.yaml -f compose.gpu.yaml --profile d1 up -d --wait
 - Host 需要 NVIDIA driver（570.26 以上，CUDA 12.8 的要求）與 NVIDIA Container Toolkit。Image 不用 `nvidia/cuda` 當 base：torch 的 wheel 自帶 CUDA library。
 - 在 GPU host 上 compose 會直接建 linux/amd64 的 image，裡面是 CUDA 12.8 版的 torch。在 Mac 上也可以用模擬的方式建同一個 image（`docker build --platform linux/amd64 --target runtime .`，OrbStack 上約 13 分鐘），但不能在 Mac 上跑 CUDA。
 - GPU 記憶體夠的話，兩個 Decider 可以同時跑（`--profile d1 --profile lfm3`，port 各自是 8000 與 8001）。
+
+## 在 dev container 裡開發
+
+`.devcontainer/devcontainer.json` 提供一個可重現的 Linux 開發環境：所有測試層級（含真模型）都能在裡面跑，也能 serve 並 benchmark 任一個 Decider。需求：Docker（Mac 上用 OrbStack），加上 VS Code 的 Dev Containers extension 或 `devcontainer` CLI。
+
+在 VS Code 開啟 repo，執行「Dev Containers: Reopen in Container」。建立容器時會：
+
+- 建 `Dockerfile` 的 `dev` target，把 repo bind mount 到 `/app`；
+- 把 compose 的 named volume `local-jev_hf-cache` 掛在 `HF_HOME`（`/data/hf`）：跟 compose 共用同一份 Hugging Face cache，任一邊下載過的 model 另一邊直接用；整個 cache 一起掛載，原因見上方 compose 一節；
+- 建立後執行 `uv sync --frozen`，把 repo 以 editable 方式裝進 image 裡的 `/opt/venv`（不是 repo 裡的 `.venv`：Mac 上原生建的 `.venv` 在容器裡用不到，也不會被動到）；
+- 推薦 Python 與 Ruff 兩個 extension，Python interpreter 指向 `/opt/venv/bin/python`。
+
+容器以 non-root user `app`（UID 10001）執行。裡面的指令跟原生一樣：
+
+```sh
+uv run pytest                                       # 快速測試
+uv run pytest -m real_model tests/test_real_d1.py   # 真模型測試：一次跑一個檔
+uv run pytest -m real_model tests/test_real_lfm3.py
+uv run pytest -m real_model tests/test_real_bench.py
+uv run local-jev serve --decider lfm3               # 終端機 1：或 --decider d1
+uv run local-jev bench --limit 10                   # 終端機 2：smoke run
+```
+
+- **容器裡只有 CPU（fp32），沒有 MPS。** macOS 上沒有任何 container runtime 能讓 Linux 容器用 Metal，OrbStack 也完全沒有 GPU 支援。要用 MPS 請在 Mac 上原生 `uv run`（見最上方）。
+- **真模型測試一個檔一個檔跑**，讓記憶體裡同時只有一個 model：fp32 的 d1 約 7.7 GB、LFM3 約 6.9 GB，而 OrbStack 給所有容器合計的上限是 15.7 GiB，同時開著的 compose Decider 也算在內。
+- 第一次用到 LFM3 時會下載約 3.2 GB 到共用的 volume。下載卡住不動時（驗證時在容器裡碰過一次：Xet 下載停在 2.7 GB），可以中斷後設 `HF_HUB_DISABLE_XET=1` 改走一般 HTTP，例如 `HF_HUB_DISABLE_XET=1 hf download LiquidAI/LFM3-1.7B --revision 0dc4268b561499c648c7ba7c9466bf3d8d01517a`（約 3 分鐘）。
+- 如果是 dev container 先建立了 volume，之後 `docker compose up` 會警告這個 volume「already exists but was not created by Docker Compose」，但照樣使用它，可以忽略。
+- 在 Mac 上（M3 Pro、OrbStack）量到的時間：快速測試約 20 秒（需要 docker CLI 的 compose 測試在容器裡會略過）；真模型測試 `test_real_d1.py` 約 20 秒、`test_real_lfm3.py` 約 90 秒、`test_real_bench.py` 約 70 秒；server 啟動後 `bench --limit 10` 每個 Decider 約 50 秒（含等 model 載入）。
+
+### Dev container 在 Linux NVIDIA GPU host 上（未驗證）
+
+- `hostRequirements.gpu` 是 `"optional"`：Docker 有 NVIDIA runtime（裝了 NVIDIA Container Toolkit）時，Dev Containers 會替容器加上 `--gpus all`，`--device auto` 就會選 CUDA 與 bfloat16；沒有時照樣用 CPU 啟動。這條路還沒在真的 GPU host 上跑過。
+- 在 linux/amd64 上 `dev` target 裝的是 CUDA 12.8 版的 torch；host 的需求跟 compose 一樣（NVIDIA driver 570.26 以上與 NVIDIA Container Toolkit）。
+- `updateRemoteUserUID` 是關的：容器一律用 UID 10001，因為 `/opt/venv` 和 volume 裡的檔案都屬於它。Linux 的 bind mount 保留 host 上的 owner，所以 repo 必須讓 UID 10001 可寫（例如用 ACL 給它權限），否則 `.cache/`、`runs/` 寫不進去。Mac 上 OrbStack 會自動對應 owner，不用處理。
 
 ## 跑 benchmark（jevbench）
 
@@ -472,4 +506,4 @@ uv run pytest -m real_model tests/test_real_lfm3.py   # 只跑其中一個 model
 uv run ruff check
 ```
 
-快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`tests/test_comparison_report.py` 也用同一個快取：跑一個真的 run 給 `report`，並把報告裡 jevbench 的 reference 數字對照 jevbench 的原始檔案。`tests/test_zh_tw_tasks.py` 用同一個快取對照 jevbench 檢查繁體中文 Task set；離線又沒有快取時，需要原檔的幾項會 skip 並說明原因。`tests/test_lockfile.py` 確認 `uv.lock` 在每個平台鎖的 torch 來自正確的 index；`tests/test_compose.py` 用 `docker compose config` 確認 profile、共用的 volume、環境變數與 GPU override，沒有 docker CLI 時自動略過。容器實際啟動（health 與 10 個 Tasks 的 smoke run）要照上面的 compose 步驟手動驗證。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。
+快速測試裡的 `tests/test_bench.py` 會跑真正的 jevbench：第一次執行時把它抓進 `.cache/`（需要網路），之後離線也能跑。`tests/test_comparison_report.py` 也用同一個快取：跑一個真的 run 給 `report`，並把報告裡 jevbench 的 reference 數字對照 jevbench 的原始檔案。`tests/test_zh_tw_tasks.py` 用同一個快取對照 jevbench 檢查繁體中文 Task set；離線又沒有快取時，需要原檔的幾項會 skip 並說明原因。`tests/test_lockfile.py` 確認 `uv.lock` 在每個平台鎖的 torch 來自正確的 index；`tests/test_compose.py` 用 `docker compose config` 確認 profile、共用的 volume、環境變數與 GPU override，沒有 docker CLI 時自動略過。`tests/test_devcontainer.py` 確認 dev container 從 `dev` target 建、跟 compose 掛同一個 Hugging Face cache volume、GPU 是選用的、建立時跑 `uv sync`、推薦的 extension（比對 compose 的部分沒有 docker CLI 時略過）。容器實際啟動（health 與 10 個 Tasks 的 smoke run）與 dev container 裡的各層測試，要照上面的 compose 與 dev container 步驟手動驗證。`real_model` 裡的 `tests/test_real_bench.py` 用 jevbench 的 `typesafe` adapter 對真正的 d1 server 跑 10 個 Tasks，10 個答案都必須有效。

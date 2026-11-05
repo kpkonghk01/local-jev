@@ -1,0 +1,34 @@
+// The dev container: the Dockerfile's `dev` target, with the repo bind-mounted over /app.
+// On the Mac (OrbStack) it runs on CPU: no container runtime on macOS gives Linux containers MPS.
+{
+  "name": "local-jev",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "target": "dev"
+  },
+  "mounts": [
+    // compose.yaml's `hf-cache` volume (project `local-jev`), mounted whole as HF_HOME: the hub
+    // links snapshots into a shared blob store, so one model directory alone would not work.
+    { "type": "volume", "source": "local-jev_hf-cache", "target": "/data/hf" }
+  ],
+  // UNVERIFIED on a GPU host. "optional": the tool adds `--gpus all` only when Docker reports the
+  // NVIDIA runtime (NVIDIA Container Toolkit), and starts without a GPU otherwise.
+  "hostRequirements": { "gpu": "optional" },
+  // Keep the image's user `app` (UID 10001): it owns /opt/venv and the files in the shared cache
+  // volume. Remapping it to a Linux host's UID would leave both unwritable.
+  "updateRemoteUserUID": false,
+  "workspaceMount": "type=bind,source=${localWorkspaceFolder},target=/app",
+  "workspaceFolder": "/app",
+  // Installs the mounted project, editable, into the image's /opt/venv (UV_PROJECT_ENVIRONMENT).
+  "postCreateCommand": "uv sync --frozen",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "charliermarsh.ruff"],
+      "settings": {
+        // Not a .venv the host may have left in the mounted repo (a macOS one does not run here).
+        "python.defaultInterpreterPath": "/opt/venv/bin/python"
+      }
+    }
+  }
+}

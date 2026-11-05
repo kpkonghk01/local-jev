@@ -279,7 +279,9 @@ def test_a_cached_checkout_at_another_commit_is_fetched_again(
 ):
     stale = tmp_path / "cache" / "jevbench" / JEVBENCH_COMMIT
     stale.mkdir(parents=True)
-    for git in (["init", "--quiet"], ["commit", "--quiet", "--allow-empty", "-m", "not jevbench"]):
+    # An identity of its own: a fresh dev container has no git user configured.
+    commit = ["-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit"]
+    for git in (["init", "--quiet"], [*commit, "--quiet", "--allow-empty", "-m", "not jevbench"]):
         subprocess.run(["git", "-C", str(stale), *git], check=True, capture_output=True)
     monkeypatch.setenv("LOCAL_JEV_JEVBENCH_URL", jevbench_mirror)
     with listening(_fake_d1()) as endpoint:
