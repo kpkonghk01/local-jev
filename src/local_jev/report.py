@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from local_jev.bench import JEVBENCH_COMMIT
+from local_jev.bench import JEVBENCH_COMMIT, RunFigures
 from local_jev.calibration import REPORT_FILE
 from local_jev.decider import PinnedModel
 from local_jev.figures import number, percent
@@ -498,7 +498,7 @@ def _rows(run: Path) -> list[Row]:
         if not (run / name).is_file():
             raise ReportRefused(f"{run} is not a finished `local-jev bench` run: it has no {name}")
     record = read_json(run / "run.json")
-    summary = read_json(run / "summary.json")
+    figures = RunFigures.of(record, read_json(run / "summary.json"))
     decisions = read_jsonl(run / "decisions.jsonl")
     server = record["server"]
     if server is None:  # every request failed, or the server predates `runtime`
@@ -506,41 +506,38 @@ def _rows(run: Path) -> list[Row]:
     runtimes = [d["runtime"] for d in decisions if d.get("runtime")]
     devices = tuple(sorted({r["device"] for r in runtimes})) or (server["device"],)
     if len(devices) == 1:
-        latency = summary.get("latency") or {}
-        client_ms = (_ms(latency.get("p50_s")), _ms(latency.get("p95_s")))
+        client_ms = (_ms(figures.client_p50_s), _ms(figures.client_p95_s))
         total_ms = [r["total_ms"] for r in runtimes]
         server_ms = (_percentile(total_ms, 0.5), _percentile(total_ms, 0.95))
     else:  # a latency figure never mixes hardware
         client_ms = server_ms = (None, None)
-    # A server older than calibration says nothing of it: it served raw Distributions.
-    served_calibration = server.get("calibration")
     language = _language(run, decisions)
     served = Row(
         pinned_model=PinnedModel.of(server),
-        kind="raw" if served_calibration is None else "served calibrated",
-        calibration="raw" if served_calibration is None else "calibrated, served",
+        kind="served calibrated" if figures.calibrated else "raw",
+        calibration="calibrated, served" if figures.calibrated else "raw",
         on_public_tasks=(
             language == ENGLISH
             and record["task_set"] == "public"
             and record.get("limit") is None
-            and summary["n_attempted"] == PUBLIC_TASKS
+            and figures.tasks == PUBLIC_TASKS
         ),
         language=language,
         task_set=record["task_set"],
-        tasks=summary["n_attempted"],
-        accuracy=summary.get("accuracy"),
-        brier=summary.get("brier_mean") if served_calibration is None else None,
-        ece=(summary.get("ece") or {}).get("ece") if served_calibration is None else None,
-        valid=summary.get("schema_validity"),
+        tasks=figures.tasks,
+        accuracy=figures.accuracy,
+        brier=None if figures.calibrated else figures.brier,
+        ece=None if figures.calibrated else figures.ece,
+        valid=figures.valid,
         client_ms=client_ms,
         server_ms=server_ms,
         devices=devices,
         run=run.name,
-        served_calibration=served_calibration,
+        served_calibration=figures.served_calibration,
     )
     rows = [served]
     # `calibrate` writes a report into raw runs only.
-    if served_calibration is None and (run / REPORT_FILE).is_file():
+    if not figures.calibrated and (run / REPORT_FILE).is_file():
         cv = read_json(run / REPORT_FILE)["cross_validation"]
         calibrated = cv["calibrated"]
         rows.append(

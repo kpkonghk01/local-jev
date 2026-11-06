@@ -15,12 +15,12 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
-from dataclasses import fields
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 from itertools import zip_longest
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from local_jev.decider import PinnedModel, Runtime
 from local_jev.figures import number, percent
@@ -209,25 +209,61 @@ def bench(
     return run
 
 
+@dataclass(frozen=True)
+class RunFigures:
+    """jevbench's own figures for a finished run (its `summary.json`), None where it has none, and
+    the calibration the Distributions they score were served with."""
+
+    tasks: int
+    """The Tasks jevbench attempted."""
+    valid: float | None
+    accuracy: float | None
+    brier: float | None
+    ece: float | None
+    client_p50_s: float | None
+    client_p95_s: float | None
+    """jevbench's wall clock around each request."""
+    served_calibration: dict | None
+    """The calibration the server applied; None when it served raw Distributions, as a server
+    older than calibration did, or when no answer said which server it was."""
+
+    @classmethod
+    def of(cls, record: Mapping[str, Any], summary: Mapping[str, Any]) -> RunFigures:
+        """The figures in a finished run's `run.json` record and jevbench's `summary.json`."""
+        latency = summary.get("latency") or {}
+        return cls(
+            tasks=summary["n_attempted"],
+            valid=summary.get("schema_validity"),
+            accuracy=summary.get("accuracy"),
+            brier=summary.get("brier_mean"),
+            ece=(summary.get("ece") or {}).get("ece"),
+            client_p50_s=latency.get("p50_s"),
+            client_p95_s=latency.get("p95_s"),
+            served_calibration=(record["server"] or {}).get("calibration"),
+        )
+
+    @property
+    def calibrated(self) -> bool:
+        return self.served_calibration is not None
+
+
 def headline(run: Path) -> str:
     """One line saying what a finished run measured, and on what."""
     record = read_json(run / "run.json")
-    summary = read_json(run / "summary.json")
+    figures = RunFigures.of(record, read_json(run / "summary.json"))
     server = record["server"]
     who = (
         f"{PinnedModel.of(server)} on {server['device']}, "
-        + ("calibrated" if server.get("calibration") else "raw")
+        + ("calibrated" if figures.calibrated else "raw")
         if server
         else "an unidentified server"
     )
-    ece = (summary.get("ece") or {}).get("ece")
-    latency = summary.get("latency") or {}
     return (
-        f"{who}, Task set {record['task_set']}, {summary['n_attempted']} Tasks: "
-        f"Valid {percent(summary.get('schema_validity'))}, "
-        f"Accuracy {percent(summary.get('accuracy'))}, "
-        f"Brier {number(summary.get('brier_mean'))}, ECE {number(ece)}, "
-        f"client p50 {number(latency.get('p50_s'))} s, p95 {number(latency.get('p95_s'))} s"
+        f"{who}, Task set {record['task_set']}, {figures.tasks} Tasks: "
+        f"Valid {percent(figures.valid)}, "
+        f"Accuracy {percent(figures.accuracy)}, "
+        f"Brier {number(figures.brier)}, ECE {number(figures.ece)}, "
+        f"client p50 {number(figures.client_p50_s)} s, p95 {number(figures.client_p95_s)} s"
     )
 
 
