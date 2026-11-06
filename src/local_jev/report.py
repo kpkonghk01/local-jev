@@ -281,12 +281,11 @@ def _on_gpu(public: Sequence[Row]) -> Checked:
 def _recorded_on_mps(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
     """The spec sets no bar on the Mac: each Decider's server-side p50 on MPS is recorded."""
     on_mps = _timed_on(public, "mps")
-    missing = [d for d in deciders if not any(r.pinned_model.decider == d for r in on_mps)]
+    missing = _missing(on_mps, deciders)
     return Checked(
         "3a. Server-side p50 on the Mac (MPS) is recorded for every Decider",
         "pending" if missing else "pass",
-        [_server_p50(r) for r in on_mps]
-        + [f"no run of {d} on mps on the {PUBLIC_TASKS} public Tasks" for d in missing],
+        [_server_p50(r) for r in on_mps] + [_no_run(d, on="mps") for d in missing],
     )
 
 
@@ -411,7 +410,7 @@ def _default_decider_line(public: Sequence[Row], deciders: Sequence[str]) -> _Li
 
 
 def _missing(public: Sequence[Row], deciders: Sequence[str]) -> list[str]:
-    """The Deciders in `deciders` without a run on the public Tasks."""
+    """The Deciders in `deciders` without a run among `public`, rows on the public Tasks."""
     return [d for d in deciders if not any(r.pinned_model.decider == d for r in public)]
 
 
@@ -430,8 +429,10 @@ def _valid_answers(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
     )
 
 
-def _no_run(decider: str) -> str:
-    return f"no run of {decider} on the {PUBLIC_TASKS} public Tasks"
+def _no_run(decider: str, on: str | None = None) -> str:
+    """Evidence that `decider` has no run on the public Tasks, or none on the device `on`."""
+    device = f" on {on}" if on is not None else ""
+    return f"no run of {decider}{device} on the {PUBLIC_TASKS} public Tasks"
 
 
 _REFERENCE_NOTES = [
