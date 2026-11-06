@@ -116,7 +116,7 @@ TYPESAFE_API_KEY=local python -m jevbench.cli run \
   --results /abs/run/results.jsonl --raw-dir /abs/run/raw \
   --ledger /abs/run/ledger.jsonl --manifest /abs/run/manifest.json
 python -m jevbench.cli summarize --tasks <同上> --results /abs/run/results.jsonl \
-  --public-export /abs/run/summary.json
+  --public-export /abs/run/public-export.json > /abs/run/summary.json
 ```
 
 會踩到的眉角（`local-jev bench` 都已處理）：
