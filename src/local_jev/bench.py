@@ -24,7 +24,7 @@ from typing import Any, NamedTuple
 
 from local_jev.decider import PinnedModel, Runtime
 from local_jev.figures import number, percent
-from local_jev.files import create_new, read_json, read_jsonl, utc_stamp
+from local_jev.files import create_new, read_json, read_jsonl, utc_stamp, write_json
 
 JEVBENCH_URL = "https://github.com/fstandhartinger/jevbench.git"
 JEVBENCH_COMMIT = "609a664e81f46e03731600bd7bd9f1b7a61257c5"
@@ -207,7 +207,7 @@ def bench(
         "finished_utc": _now(),
         "server": _server(results),
     }
-    (run / "run.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    write_json(run / "run.json", record)
     return run
 
 
