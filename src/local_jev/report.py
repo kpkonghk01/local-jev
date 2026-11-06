@@ -125,7 +125,7 @@ class Comparison:
     """The default Decider picked, and why, as one line of plain text."""
 
 
-def compare(runs: Sequence[Path], deciders: Sequence[str] = ("d1", "lfm3")) -> Comparison:
+def compare(runs: Sequence[Path], deciders: Sequence[str]) -> Comparison:
     """The comparison report on `runs`, finished `local-jev bench` run directories.
 
     `deciders` names every Decider (as `serve --decider` does) the verdict waits for. Raises
