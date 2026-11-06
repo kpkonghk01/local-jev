@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from local_jev.bench import JEVBENCH_COMMIT, RunFigures
+from local_jev.bench import JEVBENCH_COMMIT, ZH_TW_PREFIX, RunFigures
 from local_jev.calibration import REPORT_FILE
 from local_jev.decider import PinnedModel
 from local_jev.figures import number, percent
@@ -554,8 +554,6 @@ def _rows(run: Path) -> list[Row]:
 
 
 ENGLISH, TRADITIONAL_CHINESE = "English", "Traditional Chinese"
-ZH_TW_PREFIX = "zh-tw-"
-"""Every part of the Traditional-Chinese Task set is named with it, as `zh-tw-easy`."""
 
 
 def _language(run: Path, decisions: Sequence[dict]) -> str:

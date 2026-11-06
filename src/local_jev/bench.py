@@ -41,10 +41,12 @@ def _public(*parts: str) -> TaskFiles:
 
 ZH_TW_TASKS = Path(__file__).with_name("zh_tw")
 """The Traditional-Chinese copy of the public Tasks, committed with local-jev (see its README)."""
+ZH_TW_PREFIX = "zh-tw-"
+"""Every part of the Traditional-Chinese Task set is named with it, as `zh-tw-easy`."""
 
 
 def _zh_tw(*parts: str) -> TaskFiles:
-    return lambda _jevbench: [(f"zh-tw-{p}", ZH_TW_TASKS / f"{p}.jsonl") for p in parts]
+    return lambda _jevbench: [(f"{ZH_TW_PREFIX}{p}", ZH_TW_TASKS / f"{p}.jsonl") for p in parts]
 
 
 TASK_SETS: dict[str, TaskFiles] = {
