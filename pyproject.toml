@@ -1,0 +1,81 @@
+[project]
+name = "local-jev"
+version = "0.1.0"
+description = "A Jev-compatible decision server on small local models"
+readme = "README.md"
+authors = [
+    { name = "Pan", email = "kpkong@hk01.com" }
+]
+requires-python = "==3.12.*"
+dependencies = [
+    # torch 2.11 / torchvision 0.26 are the newest builds on the PyTorch CUDA 12.8 index,
+    # so pin them now to get the same torch on every platform once that index is added.
+    "torch==2.11.*",
+    "torchvision==0.26.*",
+    "transformers>=5.19",
+    "pillow",
+    "huggingface_hub",
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+]
+
+[project.scripts]
+local-jev = "local_jev.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "httpx",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.5,<0.14.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Resolve only for the platforms local-jev runs on: the Mac, a Linux GPU host, Linux arm64 containers.
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+# torch: CUDA 12.8 builds on the Linux GPU host, CPU builds in Linux arm64 containers, PyPI on the
+# Mac (its macOS wheels are the MPS-capable build). PyPI's Linux wheels would bring CUDA 13 on
+# aarch64 too, hence the explicit CPU index there. `uv lock`/`uv sync` have no `--torch-backend`.
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
+torchvision = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = ["--strict-markers", "-m", "not real_model"]
+markers = [
+    "real_model: loads real model weights; excluded by default, run with `-m real_model`",
+]
