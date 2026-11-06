@@ -14,8 +14,10 @@ from pathlib import Path
 import pytest
 from harness.fake_d1 import FakeD1Model, d1_choice, d1_noul, d1_score
 from harness.fake_lm import FakeLMBackend
+from harness.runs import bench_run
 from harness.server import listening
 
+from local_jev.bench import headline
 from local_jev.cli import main
 from local_jev.d1 import D1Decider
 from local_jev.files import read_jsonl
@@ -219,6 +221,25 @@ def test_a_run_ends_by_saying_where_it_is_and_what_it_scored(tmp_path, capsys):
     # easy-intent-00 and -01 expect track_order and cancel_order, not the fake's (alphabetically
     # first) billing_question; of easy-fact-00 and -01, only the first expects the fake's yes.
     assert "4 Tasks: Valid 100.0%, Accuracy 25.0%" in said
+
+
+def test_a_runs_headline_carries_every_figure_jevbench_summarized(tmp_path):
+    run = bench_run(
+        tmp_path,
+        "20261105T085252Z-public",
+        n_tasks=5,
+        accuracy=0.76623,
+        brier=0.28518,
+        ece=0.07205,
+        valid=1.0,
+        client_p50_s=0.17503,
+        client_p95_s=2.61972,
+    )
+
+    assert headline(run) == (
+        "d1 LiquidAI/d1-2B@652f920 on mps, raw, Task set public, 5 Tasks: Valid 100.0%, "
+        "Accuracy 76.6%, Brier 0.285, ECE 0.072, client p50 0.175 s, p95 2.620 s"
+    )
 
 
 def test_a_run_against_a_calibrated_server_records_and_says_so(tmp_path, capsys):

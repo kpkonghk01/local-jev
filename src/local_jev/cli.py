@@ -116,18 +116,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="serve raw Distributions, as a bench run for `calibrate` needs",
     )
 
-    bench = commands.add_parser("bench", help="run jevbench against a running server")
-    bench.add_argument("--endpoint", default="http://127.0.0.1:8000", help="the server's base URL")
-    bench.add_argument("--task-set", choices=sorted(TASK_SETS), default="public")
-    bench.add_argument("--limit", type=int, help="run only N of the Task set's Tasks")
-    bench.add_argument("--runs-dir", type=Path, default=Path("runs"))
-    bench.add_argument("--cache-dir", type=Path, default=Path(".cache"))
+    bench_cmd = commands.add_parser("bench", help="run jevbench against a running server")
+    bench_cmd.add_argument(
+        "--endpoint", default="http://127.0.0.1:8000", help="the server's base URL"
+    )
+    bench_cmd.add_argument("--task-set", choices=sorted(TASK_SETS), default="public")
+    bench_cmd.add_argument("--limit", type=int, help="run only N of the Task set's Tasks")
+    bench_cmd.add_argument("--runs-dir", type=Path, default=Path("runs"))
+    bench_cmd.add_argument("--cache-dir", type=Path, default=Path(".cache"))
 
-    fit = commands.add_parser(
+    calibrate_cmd = commands.add_parser(
         "calibrate", help="fit the temperatures of the Decider that served a bench run"
     )
-    fit.add_argument("run", type=Path, help="a finished `local-jev bench` run directory")
-    fit.add_argument(
+    calibrate_cmd.add_argument("run", type=Path, help="a finished `local-jev bench` run directory")
+    calibrate_cmd.add_argument(
         "--calibrations-dir",
         type=Path,
         default=CALIBRATIONS_DIR,

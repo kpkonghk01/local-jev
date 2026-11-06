@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from local_jev.bench import JEVBENCH_COMMIT
+from local_jev.bench import JEVBENCH_COMMIT, ZH_TW_PREFIX, RunFigures
 from local_jev.calibration import REPORT_FILE
 from local_jev.decider import PinnedModel
 from local_jev.figures import number, percent
@@ -125,7 +125,7 @@ class Comparison:
     """The default Decider picked, and why, as one line of plain text."""
 
 
-def compare(runs: Sequence[Path], deciders: Sequence[str] = ("d1", "lfm3")) -> Comparison:
+def compare(runs: Sequence[Path], deciders: Sequence[str]) -> Comparison:
     """The comparison report on `runs`, finished `local-jev bench` run directories.
 
     `deciders` names every Decider (as `serve --decider` does) the verdict waits for. Raises
@@ -281,12 +281,11 @@ def _on_gpu(public: Sequence[Row]) -> Checked:
 def _recorded_on_mps(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
     """The spec sets no bar on the Mac: each Decider's server-side p50 on MPS is recorded."""
     on_mps = _timed_on(public, "mps")
-    missing = [d for d in deciders if not any(r.pinned_model.decider == d for r in on_mps)]
+    missing = _missing(on_mps, deciders)
     return Checked(
         "3a. Server-side p50 on the Mac (MPS) is recorded for every Decider",
         "pending" if missing else "pass",
-        [_server_p50(r) for r in on_mps]
-        + [f"no run of {d} on mps on the {PUBLIC_TASKS} public Tasks" for d in missing],
+        [_server_p50(r) for r in on_mps] + [_no_run(d, on="mps") for d in missing],
     )
 
 
@@ -411,7 +410,7 @@ def _default_decider_line(public: Sequence[Row], deciders: Sequence[str]) -> _Li
 
 
 def _missing(public: Sequence[Row], deciders: Sequence[str]) -> list[str]:
-    """The Deciders in `deciders` without a run on the public Tasks."""
+    """The Deciders in `deciders` without a run among `public`, rows on the public Tasks."""
     return [d for d in deciders if not any(r.pinned_model.decider == d for r in public)]
 
 
@@ -430,8 +429,10 @@ def _valid_answers(public: Sequence[Row], deciders: Sequence[str]) -> Checked:
     )
 
 
-def _no_run(decider: str) -> str:
-    return f"no run of {decider} on the {PUBLIC_TASKS} public Tasks"
+def _no_run(decider: str, on: str | None = None) -> str:
+    """Evidence that `decider` has no run on the public Tasks, or none on the device `on`."""
+    device = f" on {on}" if on is not None else ""
+    return f"no run of {decider}{device} on the {PUBLIC_TASKS} public Tasks"
 
 
 _REFERENCE_NOTES = [
@@ -498,7 +499,7 @@ def _rows(run: Path) -> list[Row]:
         if not (run / name).is_file():
             raise ReportRefused(f"{run} is not a finished `local-jev bench` run: it has no {name}")
     record = read_json(run / "run.json")
-    summary = read_json(run / "summary.json")
+    figures = RunFigures.of(record, read_json(run / "summary.json"))
     decisions = read_jsonl(run / "decisions.jsonl")
     server = record["server"]
     if server is None:  # every request failed, or the server predates `runtime`
@@ -506,41 +507,38 @@ def _rows(run: Path) -> list[Row]:
     runtimes = [d["runtime"] for d in decisions if d.get("runtime")]
     devices = tuple(sorted({r["device"] for r in runtimes})) or (server["device"],)
     if len(devices) == 1:
-        latency = summary.get("latency") or {}
-        client_ms = (_ms(latency.get("p50_s")), _ms(latency.get("p95_s")))
+        client_ms = (_ms(figures.client_p50_s), _ms(figures.client_p95_s))
         total_ms = [r["total_ms"] for r in runtimes]
         server_ms = (_percentile(total_ms, 0.5), _percentile(total_ms, 0.95))
     else:  # a latency figure never mixes hardware
         client_ms = server_ms = (None, None)
-    # A server older than calibration says nothing of it: it served raw Distributions.
-    served_calibration = server.get("calibration")
     language = _language(run, decisions)
     served = Row(
         pinned_model=PinnedModel.of(server),
-        kind="raw" if served_calibration is None else "served calibrated",
-        calibration="raw" if served_calibration is None else "calibrated, served",
+        kind="served calibrated" if figures.calibrated else "raw",
+        calibration="calibrated, served" if figures.calibrated else "raw",
         on_public_tasks=(
             language == ENGLISH
             and record["task_set"] == "public"
             and record.get("limit") is None
-            and summary["n_attempted"] == PUBLIC_TASKS
+            and figures.tasks == PUBLIC_TASKS
         ),
         language=language,
         task_set=record["task_set"],
-        tasks=summary["n_attempted"],
-        accuracy=summary.get("accuracy"),
-        brier=summary.get("brier_mean") if served_calibration is None else None,
-        ece=(summary.get("ece") or {}).get("ece") if served_calibration is None else None,
-        valid=summary.get("schema_validity"),
+        tasks=figures.tasks,
+        accuracy=figures.accuracy,
+        brier=None if figures.calibrated else figures.brier,
+        ece=None if figures.calibrated else figures.ece,
+        valid=figures.valid,
         client_ms=client_ms,
         server_ms=server_ms,
         devices=devices,
         run=run.name,
-        served_calibration=served_calibration,
+        served_calibration=figures.served_calibration,
     )
     rows = [served]
     # `calibrate` writes a report into raw runs only.
-    if served_calibration is None and (run / REPORT_FILE).is_file():
+    if not figures.calibrated and (run / REPORT_FILE).is_file():
         cv = read_json(run / REPORT_FILE)["cross_validation"]
         calibrated = cv["calibrated"]
         rows.append(
@@ -557,8 +555,6 @@ def _rows(run: Path) -> list[Row]:
 
 
 ENGLISH, TRADITIONAL_CHINESE = "English", "Traditional Chinese"
-ZH_TW_PREFIX = "zh-tw-"
-"""Every part of the Traditional-Chinese Task set is named with it, as `zh-tw-easy`."""
 
 
 def _language(run: Path, decisions: Sequence[dict]) -> str:
